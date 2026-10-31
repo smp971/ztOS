@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+[ ! -d /sys/module/snd_crown_abox ] || exit 0
+for name in soundcore snd snd-timer snd-pcm; do
+    module=$(printf '%s' "$name" | tr - _)
+    [ -d "/sys/module/$module" ] || insmod "/usr/local/lib/crownlte/audio/$name.ko"
+done
+# Media and the hardware-validated main microphone. Modem voice remains separate.
+insmod /usr/local/lib/crownlte/audio/snd-crown-abox.ko cp_vss=0 capture=1
+amixer -c ZrnAbox cset name='Speaker Playback Volume' 32

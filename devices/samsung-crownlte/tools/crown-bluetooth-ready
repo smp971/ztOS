@@ -1,0 +1,26 @@
+#!/bin/sh
+# Let firmware setup finish before the first Bluetooth management request.
+set -eu
+i=0
+while ! dmesg | grep -q 'hci0: HCI Read Transmit Power Level command is advertised'; do
+    i=$((i + 1)); [ "$i" -le 90 ] || exit 1
+    sleep 1
+done
+sleep 5
+i=0
+until /usr/bin/btmgmt info 2>/dev/null | grep -q '^hci0:'; do
+    i=$((i + 1)); [ "$i" -le 20 ] || exit 1
+    sleep 1
+done
+# The original EFS is only read, with journal replay explicitly disabled.
+EFS=/run/crown-bt-efs
+mkdir -p "$EFS"
+mount -t ext4 -o ro,noload /dev/sda3 "$EFS"
+address=$(tr -d '\r\n' < "$EFS/bluetooth/bt_addr")
+umount "$EFS"
+case "$address" in
+    ??:??:??:??:??:??)
+        /usr/bin/btmgmt -i hci0 power off >/dev/null
+        /usr/bin/btmgmt -i hci0 public-addr "$address" >/dev/null ;;
+    *) echo 'Crown Bluetooth address unavailable'; exit 1 ;;
+esac

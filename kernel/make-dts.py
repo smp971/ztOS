@@ -31,6 +31,8 @@ from pathlib import Path
 ap = argparse.ArgumentParser()
 ap.add_argument("src")
 ap.add_argument("out")
+ap.add_argument("--device", choices=("starlte", "crownlte"), default="starlte")
+ap.add_argument("--crown-stage", choices=("usb", "storage", "touch", "system", "gpu", "radios"), default="usb")
 ap.add_argument("--ufs", action="store_true")
 ap.add_argument("--power", action="store_true")
 ap.add_argument("--touch", action="store_true")
@@ -39,6 +41,22 @@ ap.add_argument("--decon", action="store_true")
 ap.add_argument("--wlan", action="store_true")
 ap.add_argument("--fallback", choices=("boot", "recovery"), default="boot")
 args = ap.parse_args()
+
+if args.device == "crownlte":
+    # The connected SM-N960F has a Y771 controller and an HA8 Crown panel.
+    # Neither the S6SY761 binding nor the S9 brightness tables are validated.
+    if args.decon or (args.crown_stage != "radios" and (args.power or args.wlan)):
+        ap.error("crownlte does not yet support these hardware switches")
+    if args.gpu != (args.crown_stage in ("gpu", "radios")):
+        ap.error("crownlte GPU requires the explicit gpu stage")
+    if args.ufs != (args.crown_stage != "usb"):
+        ap.error("crownlte: --ufs requires an explicit storage/touch stage")
+    if args.touch != (args.crown_stage in ("touch", "system", "gpu", "radios")):
+        ap.error("crownlte: --touch requires the explicit --crown-stage touch")
+    if args.fallback != "recovery":
+        ap.error("crownlte requires --fallback recovery to preserve the way back")
+    if args.crown_stage == "radios" and not (args.power and args.wlan):
+        ap.error("crownlte radios stage requires --power and --wlan")
 
 s = Path(args.src).read_text()
 
@@ -61,18 +79,28 @@ def disable(anchor, count=1):
     sub(anchor, anchor + '\n\t\t\tstatus = "disabled";', count)
 
 
-sub('model = "Samsung Galaxy S9+ (SM-G965F)";', 'model = "Samsung Galaxy S9 (SM-G960N)";')
+model = "Samsung Galaxy Note9 (SM-N960F)" if args.device == "crownlte" else "Samsung Galaxy S9 (SM-G960N)"
+sub('model = "Samsung Galaxy S9+ (SM-G965F)";', f'model = "{model}";')
 sub('compatible = "samsung,star2lte", "samsung,exynos9810";',
-    'compatible = "samsung,starlte", "samsung,exynos9810";')
+    f'compatible = "samsung,{args.device}", "samsung,exynos9810";')
 
-sub("""		      <0x8 0x80000000 0x80000000>,
+if args.device == "crownlte":
+    # Read from this SM-N960F's live FDT: the protected RKP region is larger
+    # than the S9+'s. Letting the page allocator use any of it is unsafe.
+    sub("rkp@af800000 {", "rkp@af600000 {")
+    sub("reg = <0x0 0xaf800000 0x1800000>;", "reg = <0x0 0xaf600000 0x2400000>;")
+    sub('compatible = "samsung,s6sy761";', 'compatible = "samsung,s6sy771";')
+
+if args.device == "starlte":
+    sub("""		      <0x8 0x80000000 0x80000000>,
 		      <0x9 0x00000000 0x80000000>;""",
     """		      <0x8 0x80000000 0x80000000>;""")
 
-sub("energy-full-design-microwatt-hours = <13480000>;", "energy-full-design-microwatt-hours = <11550000>;")
-sub("charge-full-design-microamp-hours = <3500000>;", "charge-full-design-microamp-hours = <3000000>;")
+capacity, energy, current = (4000000, 15400000, 1000000) if args.device == "crownlte" else (3000000, 11550000, 1500000)
+sub("energy-full-design-microwatt-hours = <13480000>;", f"energy-full-design-microwatt-hours = <{energy}>;")
+sub("charge-full-design-microamp-hours = <3500000>;", f"charge-full-design-microamp-hours = <{capacity}>;")
 sub("voltage-max-design-microvolt = <4400000>;", "voltage-max-design-microvolt = <4350000>;")
-sub("constant-charge-current-max-microamp = <2150000>;", "constant-charge-current-max-microamp = <1500000>;")
+sub("constant-charge-current-max-microamp = <2150000>;", f"constant-charge-current-max-microamp = <{current}>;")
 sub("constant-charge-voltage-max-microvolt = <4400000>;", "constant-charge-voltage-max-microvolt = <4350000>;")
 
 if args.fallback == "boot":
@@ -83,6 +111,11 @@ if args.ufs:
     enable("UFS", count=2)
 if args.gpu:
     enable("GPU")
+    if args.device == "crownlte":
+        # Initial hardware probe stays at the lowest stock frequency, 260 MHz.
+        start = s.index('\n\t\t\topp-455000000 {')
+        end = s.index('\n\t\t};', start)
+        s = s[:start] + s[end:]
 if args.decon:
     enable("DECON")
 if args.wlan:

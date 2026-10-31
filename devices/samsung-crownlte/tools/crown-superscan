@@ -1,0 +1,7 @@
+#!/bin/sh
+# Keep WebKit and its child processes on the Note9-tested linear buffer path.
+# Other applications and the browser sandbox retain their existing settings.
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+export PAN_MESA_DEBUG=noafbc,linear
+exec /usr/local/lib/crownlte/browser/superscan.bin "$@"

@@ -24,21 +24,29 @@
 # toolchain, kernel tree and busybox live under build/.
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-B=$ROOT/build
+B=${ZTOS_BUILD_DIR:-$ROOT/build}
 SRC=$B/linux-7.1
 PORT=$ROOT/third_party/s9plus
 TC=$B/toolchain/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
-REF=$ROOT/stock/RECOVERY.img    # TWRP for starlte: a header and DTBH sboot accepts
-export PATH=$TC:$PATH LC_ALL=C ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu-
+REF=${ZTOS_BOOT_REFERENCE:-$ROOT/stock/RECOVERY.img}
+export PATH=$TC:$PATH LC_ALL=C ARCH=arm64 CROSS_COMPILE=${CROSS_COMPILE:-aarch64-none-linux-gnu-}
 
 NAME=${1:?image name}
 shift
 FALLBACK=boot
+DEVICE=starlte
+CROWN_STAGE=usb
+CROWN_PERSISTENT=
+CROWN_STATE=
 DTS_FLAGS=()
 EXTRA=
 UFS=1 ACPM= CPUFREQ= GPU= DECON= WLAN= PMDEBUG= LOCKUP=
 while [ $# -gt 0 ]; do
 	case "$1" in
+	--device) DEVICE=$2; shift ;;
+	--crown-stage) CROWN_STAGE=$2; shift ;;
+	--crown-persistent) CROWN_PERSISTENT=1 ;;
+	--crown-state) CROWN_STATE=1 ;;
 	--fallback) FALLBACK=$2; shift ;;
 	--no-ufs) UFS= ;;
 	--power) DTS_FLAGS+=(--power) ;;
@@ -55,6 +63,40 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
+case "$DEVICE" in starlte|crownlte) ;; *) echo "unsupported device: $DEVICE" >&2; exit 2 ;; esac
+if [ -n "$CROWN_PERSISTENT" ]; then
+	case "$DEVICE:$CROWN_STAGE" in crownlte:system|crownlte:gpu|crownlte:radios) ;; *) echo '--crown-persistent requires a Crown userspace stage' >&2; exit 2 ;; esac
+fi
+if [ -n "$CROWN_STATE" ]; then
+	[ "$DEVICE:$CROWN_STAGE" = crownlte:radios ] || { echo '--crown-state requires Crown radios stage' >&2; exit 2; }
+fi
+if [ "$DEVICE" = crownlte ]; then
+	[ -z "$CPUFREQ$DECON" ] && [ "$FALLBACK" = recovery ] || {
+		echo "crownlte: only staged prototypes with --fallback recovery are supported" >&2
+		exit 2
+	}
+	case "$CROWN_STAGE:$UFS" in
+		usb:|storage:1)
+			[ -z "$ACPM" ] && [ ${#DTS_FLAGS[@]} -eq 0 ] || { echo "unexpected hardware switch" >&2; exit 2; } ;;
+		touch:1|system:1)
+			[ "$ACPM" = 1 ] && [ "${DTS_FLAGS[*]}" = --touch ] || { echo "touch stage requires only --touch" >&2; exit 2; } ;;
+		radios:1)
+			[ "$ACPM:$GPU:$WLAN" = 1:1:1 ] && [ "${DTS_FLAGS[*]}" = '--touch --gpu --power --wlan' ] || { echo 'radios stage requires --touch --gpu --power --wlan' >&2; exit 2; } ;;
+		gpu:1)
+			[ "$ACPM:$GPU" = 1:1 ] && [ "${DTS_FLAGS[*]}" = '--touch --gpu' ] || { echo 'gpu stage requires --touch --gpu' >&2; exit 2; } ;;
+		*) echo "crownlte: use --no-ufs for USB; explicitly select storage or touch for UFS" >&2; exit 2 ;;
+	esac
+	DTS_FLAGS+=(--crown-stage "$CROWN_STAGE")
+	if [ "$CROWN_STAGE" = system ] || [ "$CROWN_STAGE" = gpu ] || [ "$CROWN_STAGE" = radios ]; then
+		DEADLINE=120
+		PERSISTENT_ARG=
+		if [ -n "$CROWN_PERSISTENT" ]; then DEADLINE=0; PERSISTENT_ARG=' zboot.persistent=1'; fi
+		if [ -n "$CROWN_STATE" ]; then PERSISTENT_ARG+=' zboot.statefile=/unencrypted/ztos/crownlte-state.img'; fi
+		EXTRA="zboot.rescue=0 zboot.test=1 zboot.deadman=$DEADLINE zboot.stage=$CROWN_STAGE zboot.rootfile=/unencrypted/ztos/crownlte-root.img$PERSISTENT_ARG${EXTRA:+ $EXTRA}"
+	else
+		EXTRA="zboot.rescue=1 zboot.test=1 zboot.deadman=120 zboot.stage=$CROWN_STAGE${EXTRA:+ $EXTRA}"
+	fi
+fi
 [ -n "$UFS" ] && DTS_FLAGS+=(--ufs)
 case "$FALLBACK" in
 boot) INFORM3=0x12345670 ;;
@@ -65,15 +107,18 @@ mkdir -p "$ROOT/out"
 OUT=$ROOT/out/$NAME
 
 echo "=== device tree ==="
-DTS=arch/arm64/boot/dts/exynos/exynos9810-starlte-zt.dts
+DTS=arch/arm64/boot/dts/exynos/exynos9810-$DEVICE-zt.dts
 python3 "$ROOT/kernel/make-dts.py" "$PORT/src/mainline-dts/exynos9810-star2lte.dts" \
-	"$SRC/$DTS" "${DTS_FLAGS[@]}" --fallback "$FALLBACK"
-grep -q starlte-zt "$SRC/arch/arm64/boot/dts/exynos/Makefile" ||
-	sed -i 's|^\(\s*\)exynos9810-starlte.dtb\(.*\)$|&\n\1exynos9810-starlte-zt.dtb\2|' \
-		"$SRC/arch/arm64/boot/dts/exynos/Makefile"
-grep -q starlte-zt "$SRC/arch/arm64/boot/dts/exynos/Makefile"
+	"$SRC/$DTS" "${DTS_FLAGS[@]}" --device "$DEVICE" --fallback "$FALLBACK"
+grep -q "exynos9810-$DEVICE-zt.dtb" "$SRC/arch/arm64/boot/dts/exynos/Makefile" ||
+	printf '\ndtb-$(CONFIG_ARCH_EXYNOS) += exynos9810-%s-zt.dtb\n' "$DEVICE" >> "$SRC/arch/arm64/boot/dts/exynos/Makefile"
 
 echo "=== port drivers ==="
+# Remove only our recognized charge encoding patch before the port checks its
+# pinned reference file. Reapply it below only for the Crown radios stage.
+if [ -f "$SRC/drivers/power/supply/max77705_charger.c" ]; then
+	python3 "$ROOT/kernel/patch-crownlte-charge.py" "$SRC" --restore
+fi
 BUILD=$B bash "$PORT/scripts/build/apply_drivers.sh" "$SRC" | tail -n 3
 # our own changes to the port's drivers, applied to the copies in the tree
 # the panel brightness (AOR) as /sys/class/backlight/s9p-panel, and the panel
@@ -101,8 +146,17 @@ python3 "$ROOT/kernel/patch-suspend-mpidr.py" "$SRC"
 python3 "$ROOT/kernel/patch-ufs-suspend.py" "$SRC"
 python3 "$ROOT/kernel/patch-touch-suspend.py" "$SRC"
 python3 "$ROOT/kernel/patch-pinctrl-resume.py" "$SRC"
+if [ "$DEVICE" = crownlte ] && { [ "$CROWN_STAGE" = touch ] || [ "$CROWN_STAGE" = system ] || [ "$CROWN_STAGE" = gpu ] || [ "$CROWN_STAGE" = radios ]; }; then
+	python3 "$ROOT/kernel/patch-crownlte-touch.py" "$SRC"
+fi
+if [ "$DEVICE:$CROWN_STAGE" = crownlte:radios ]; then
+	python3 "$ROOT/kernel/patch-crownlte-charge.py" "$SRC"
+fi
 
 echo "=== initramfs ==="
+if [ "$DEVICE" = crownlte ]; then
+	"${CROSS_COMPILE}gcc" -static -Os -s -Wall -Wextra -Werror "$ROOT/initramfs/crown-power.c" -o "$B/crown-power"
+fi
 LIST=$B/initramfs.list
 cat > "$LIST" <<EOF
 dir /bin 0755 0 0
@@ -120,6 +174,9 @@ file /bin/busybox $B/busybox-arm64 0755 0 0
 slink /bin/sh busybox 0777 0 0
 file /init $ROOT/initramfs/init 0755 0 0
 EOF
+if [ "$DEVICE" = crownlte ]; then
+	printf 'file /crown-power %s/crown-power 0700 0 0\nfile /crown-shutdown %s/initramfs/crown-shutdown 0700 0 0\n' "$B" "$ROOT" >> "$LIST"
+fi
 
 echo "=== config ==="
 cd "$SRC"
@@ -226,12 +283,27 @@ if [ -n "$DECON" ]; then
 else
 	cfg --disable DRM_S9P_DECON
 fi
+if [ "$DEVICE:$CROWN_STAGE" = crownlte:radios ]; then
+	python3 "$ROOT/bluetooth/patch-btbcm.py" "$SRC"
+	for sym in BT BT_HCIUART BT_HCIUART_H4 BT_HCIUART_BCM BT_BCM BT_RFCOMM BT_HIDP RFKILL SERIAL_SAMSUNG SERIAL_SAMSUNG_UARTS I2C_GPIO CRYPTO_ECDH CRYPTO_CMAC; do
+		[ "$sym" = SERIAL_SAMSUNG_UARTS ] && continue
+		cfg --enable "$sym"
+	done
+	cfg --set-val SERIAL_SAMSUNG_UARTS 4
+fi
 if [ -n "$WLAN" ]; then
 	# The firmware is this phone's own, out of its VENDOR partition, renamed
 	# the way brcmfmac asks for it; the nvram names itself "STAR1 KR", so it
 	# is the S9's calibration and not the S9+'s.
-	for f in bcmdhd_sta.bin_b2 nvram.txt_r02a_b2 bcmdhd_clm.blob; do
-		[ -s "$ROOT/firmware/$f" ] || { echo "missing firmware/$f" >&2; exit 1; }
+	FW_SOURCE="$ROOT/firmware"
+	NVRAM=nvram.txt_r02a_b2
+	if [ "$DEVICE" = crownlte ]; then
+		FW_SOURCE=${ZTOS_CROWN_FIRMWARE:?private Crown firmware directory required}
+		NVRAM=nvram.txt_r02b_b2
+		python3 "$ROOT/scripts/verify-crownlte-firmware.py" "$FW_SOURCE"
+	fi
+	for f in bcmdhd_sta.bin_b2 "$NVRAM" bcmdhd_clm.blob; do
+		[ -s "$FW_SOURCE/$f" ] || { echo "missing firmware/$f" >&2; exit 1; }
 	done
 	cfg --enable PCI
 	cfg --enable PCIE_DW
@@ -245,9 +317,9 @@ if [ -n "$WLAN" ]; then
 	cfg --enable BRCMFMAC_PCIE
 	FW=$B/firmware
 	mkdir -p "$FW/brcm"
-	cp "$ROOT/firmware/bcmdhd_sta.bin_b2" "$FW/brcm/brcmfmac4361-pcie.bin"
-	cp "$ROOT/firmware/nvram.txt_r02a_b2" "$FW/brcm/brcmfmac4361-pcie.txt"
-	cp "$ROOT/firmware/bcmdhd_clm.blob" "$FW/brcm/brcmfmac4361-pcie.clm_blob"
+	cp "$FW_SOURCE/bcmdhd_sta.bin_b2" "$FW/brcm/brcmfmac4361-pcie.bin"
+	cp "$FW_SOURCE/$NVRAM" "$FW/brcm/brcmfmac4361-pcie.txt"
+	cp "$FW_SOURCE/bcmdhd_clm.blob" "$FW/brcm/brcmfmac4361-pcie.clm_blob"
 	sed -i 's/\r$//' "$FW/brcm/brcmfmac4361-pcie.txt"
 	cp "$PORT/firmware/regulatory.db" "$PORT/firmware/regulatory.db.p7s" "$FW/"
 	cfg --set-str EXTRA_FIRMWARE_DIR "$FW"
@@ -256,8 +328,25 @@ else
 	cfg --set-str EXTRA_FIRMWARE ""
 fi
 cfg --set-str INITRAMFS_SOURCE "$LIST"
+if [ "$DEVICE" = crownlte ] && [ "$CROWN_STAGE" != usb ]; then
+	cfg --enable F2FS_FS
+	cfg --enable F2FS_FS_XATTR
+	cfg --enable F2FS_FS_SECURITY
+	cfg --enable UNICODE
+	cfg --enable FS_ENCRYPTION
+	cfg --enable BLK_DEV_LOOP
+fi
+if [ "$DEVICE" = crownlte ] && { [ "$CROWN_STAGE" = system ] || [ "$CROWN_STAGE" = gpu ] || [ "$CROWN_STAGE" = radios ]; }; then
+	cfg --enable OVERLAY_FS
+	cfg --enable TMPFS_XATTR
+	cfg --enable PSI
+fi
 cfg --set-val CMA_SIZE_MBYTES 128
-cfg --set-str LOCALVERSION "-zboot"
+if [ "$DEVICE" = crownlte ]; then
+	cfg --set-str LOCALVERSION "-ztos-crownlte-rescue"
+else
+	cfg --set-str LOCALVERSION "-zboot"
+fi
 # The watchdog is armed by uniLoader and again by the clock-gates node, then
 # taken over by s3c2410_wdt (tmr_atboot). The kernel pets it until userspace
 # opens /dev/watchdog, so a wedged kernel resets into the fallback target.
@@ -269,12 +358,12 @@ grep -E '^CONFIG_(CMDLINE|SCSI_UFS_EXYNOS9810|USB_CONFIGFS_NCM|S3C2410_WATCHDOG|
 grep -E '^(# )?CONFIG_(S9P_ACPM|ARM_S9P_CPUFREQ|DRM_PANFROST|DRM_S9P_DECON|CPU_FREQ)[ =]' out/.config || true
 
 echo "=== kernel ==="
-make -j"$(nproc)" O=out Image dtbs > "$B/kernel-build.log" 2>&1 || {
+make -j"${ZTOS_JOBS:-$(nproc)}" O=out Image "exynos/exynos9810-$DEVICE-zt.dtb" > "$B/kernel-build.log" 2>&1 || {
 	grep -nE '\*\*\*|error:|Error [0-9]|undefined reference' "$B/kernel-build.log" | head -40
 	exit 1
 }
 IMAGE=$SRC/out/arch/arm64/boot/Image
-DTB=$SRC/out/arch/arm64/boot/dts/exynos/exynos9810-starlte-zt.dtb
+DTB=$SRC/out/arch/arm64/boot/dts/exynos/exynos9810-$DEVICE-zt.dtb
 ls -l "$IMAGE" "$DTB"
 if grep -q '=m$' out/.config; then
 	echo "note: $(grep -c '=m$' out/.config) symbols are =m and are not built"
@@ -285,6 +374,9 @@ STAGE=$B/uniloader-stage
 rm -rf "$STAGE"
 cp -r "$PORT/bootloader/uniLoader" "$STAGE"
 python3 "$ROOT/kernel/uniloader-failsafe.py" "$STAGE/board/samsung/board-starlte.c" "$INFORM3"
+if [ "$DEVICE" = crownlte ]; then
+	sed -i 's/\.name = "samsung-starlte"/.name = "samsung-crownlte"/' "$STAGE/board/samsung/board-starlte.c"
+fi
 mkdir -p "$STAGE/blob"
 cp "$IMAGE" "$STAGE/blob/Image"
 cp "$DTB" "$STAGE/blob/dtb"
@@ -314,6 +406,7 @@ python3 -I "$PORT/scripts/build/mkboot.py" --ref "$REF" --kernel "$STAGE/uniLoad
 	--ramdisk "$PARTS/ramdisk.gz" --dt "$PARTS/dt.img" --cmdline "console=tty0" -o "$OUT.img"
 cp "$SRC/out/.config" "$OUT.config"
 cp "$SRC/$DTS" "$OUT.dts"
+cp "$DTB" "$OUT.dtb"
 echo "$CMDLINE" > "$OUT.cmdline"
 (cd "$ROOT/out" && sha256sum "$NAME.img" > "$NAME.img.sha256" && cat "$NAME.img.sha256")
 echo "BUILD_OK $OUT.img fallback=$FALLBACK"

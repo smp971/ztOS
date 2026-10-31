@@ -1,0 +1,47 @@
+#!/bin/sh
+# Original Android partitions remain read-only; modem NV changes stay in RAM.
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+for partition in /dev/sda3 /dev/sda12 /dev/sda18 /dev/sda19 /dev/sdd; do
+    [ "$(blockdev --getro "$partition")" = 1 ]
+done
+[ -d /sys/module/zrn_modem ] || insmod /usr/local/lib/crownlte/zrn-modem.ko
+echo 2 > /sys/module/zrn_modem/parameters/ds_detect
+R=/run/crown-android
+[ ! -e "$R" ] || { echo 'Android modem workspace already exists'; exit 1; }
+mkdir -p /run/crown-system /run/crown-vendor
+mountpoint -q /run/crown-system || mount -t ext4 -o ro,noload /dev/sda18 /run/crown-system
+mountpoint -q /run/crown-vendor || mount -t ext4 -o ro,noload /dev/sda19 /run/crown-vendor
+mkdir "$R"
+mount -t tmpfs -o size=32M,mode=755 tmpfs "$R"
+mkdir -p "$R/system" "$R/vendor" "$R/dev" "$R/proc" "$R/sys" "$R/apex/com.android.runtime" "$R/data/vendor" "$R/tmp" "$R/mnt/vendor/efs" "$R/mnt/vendor/cpefs" "$R/efs" "$R/linkerconfig"
+mount --bind /run/crown-system/system "$R/system"
+mount --bind /run/crown-vendor "$R/vendor"
+ln -s system/bin "$R/bin"
+ln -s system/etc "$R/etc"
+python3 - <<'PY'
+import shutil, zipfile
+with zipfile.ZipFile('/run/crown-system/system/apex/com.android.runtime.apex') as z:
+    with z.open('apex_payload.img') as src, open('/run/crown-runtime.img', 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+PY
+mount -t ext4 -o loop,ro,noload /run/crown-runtime.img "$R/apex/com.android.runtime"
+mount --bind /dev "$R/dev"
+mount -t proc proc "$R/proc"
+mount --bind /sys "$R/sys"
+dd if=/dev/sda3 of=/run/crown-efs.img bs=1M status=none
+chmod 600 /run/crown-efs.img
+mount -t ext4 -o loop,nosuid,nodev,noatime /run/crown-efs.img "$R/mnt/vendor/efs"
+mount --bind "$R/mnt/vendor/efs" "$R/efs"
+# Match the stock fstab: CPEFS is a separate read-only NV backup filesystem.
+dd if=/dev/sdd1 of=/run/crown-cpefs.img bs=1M status=none
+chmod 600 /run/crown-cpefs.img
+mount -t ext4 -o loop,ro,noload,nosuid,nodev /run/crown-cpefs.img "$R/mnt/vendor/cpefs"
+mkdir -p /dev/block/platform/11120000.ufs/by-name
+ln -sfn /dev/sda12 /dev/block/platform/11120000.ufs/by-name/RADIO
+ln -sfn /dev/sda12 /dev/mbin0
+chown 1000:1001 /dev/umts_* /dev/multipdp*
+chmod 0660 /dev/umts_* /dev/multipdp*
+chown 1001:1001 /dev/umts_dm0 /dev/umts_router
+chgrp 1001 /dev/sda12
+chmod 0640 /dev/sda12

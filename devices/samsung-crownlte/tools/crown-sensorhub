@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+R=/run/crown-android
+mountpoint -q "$R/vendor"
+[ -d /sys/module/zrn_bbd ] || insmod /usr/local/lib/crownlte/peripherals/zrn-bbd.ko
+mkdir -p "$R/data/local/compat" "$R/data/vendor/gps" "$R/storage/emulated/0/gps/broadcom/storage"
+install -m644 /usr/local/lib/crownlte/peripherals/libhardware_legacy.so "$R/data/local/compat/libhardware_legacy.so"
+exec /usr/bin/env LD_LIBRARY_PATH=/data/local/compat:/apex/com.android.runtime/lib64 \
+    /usr/bin/chroot "$R" /vendor/bin/hw/lhd /vendor/etc/sensor/lhd.conf

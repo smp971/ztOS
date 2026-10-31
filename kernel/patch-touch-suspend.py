@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Use the controller sleep command on the S9's always-powered touch rails."""
 from pathlib import Path
+import re
 import sys
 p = Path(sys.argv[1]) / 'drivers/input/touchscreen/s6sy761.c'
 s = p.read_text()
@@ -54,12 +55,27 @@ new_open = '''	int ret;
 		pm_runtime_put(&sdata->client->dev);
 	return ret;
 '''
-if old_open in s:
- s = s.replace(old_open, new_open, 1)
+# Match only input_open: runtime_resume also returns SENSE_ON. Matching that
+# second function on a subsequent build used to append another put to close.
+open_start = s.index('static int s6sy761_input_open(')
+close_start = s.index('static void s6sy761_input_close(', open_start)
+open_body = s[open_start:close_start]
+if old_open in open_body:
+ open_body = open_body.replace(old_open, new_open, 1)
+ s = s[:open_start] + open_body + s[close_start:]
+close_start = s.index('static void s6sy761_input_close(')
+close_end = s.index('\n}', close_start) + 2
+close_body = s[close_start:close_end]
+put = '\tpm_runtime_put(&sdata->client->dev);'
+close_body = re.sub(r'(?:\tpm_runtime_put\(&sdata->client->dev\);\n)+', put + '\n', close_body)
+if put not in close_body:
  close_anchor = '\t\tdev_err(&sdata->client->dev, "failed to turn off sensing\\n");'
- if s.count(close_anchor) != 1:
+ if close_body.count(close_anchor) != 1:
   sys.exit('patch-touch-suspend: input-close anchor changed')
- s = s.replace(close_anchor, close_anchor + '\n\tpm_runtime_put(&sdata->client->dev);')
+ close_body = close_body.replace(close_anchor, close_anchor + '\n' + put)
+if close_body.count(put) != 1:
+ sys.exit('patch-touch-suspend: input-close must release exactly one PM reference')
+s = s[:close_start] + close_body + s[close_end:]
 # A sleeping S9 controller can leave its level-low interrupt asserted.
 # Stop sensing and empty its FIFO before application sleep; masking the Linux
 # IRQ alone does not stop the always-on wake controller seeing the line.

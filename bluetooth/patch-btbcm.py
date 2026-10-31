@@ -21,18 +21,23 @@ from pathlib import Path
 
 path = Path(sys.argv[1]) / "drivers/bluetooth/btbcm.c"
 src = path.read_text()
+src = src.replace('of_machine_is_compatible("samsung,starlte"))',
+                  'of_machine_is_compatible("samsung,starlte") ||\n\t    of_machine_is_compatible("samsung,crownlte"))') if 'of_machine_is_compatible("samsung,crownlte")' not in src else src
 old = "\tif (dmi_first_match(disable_broken_read_transmit_power))\n"
 new = ("\tif (dmi_first_match(disable_broken_read_transmit_power) ||\n"
-       "\t    of_machine_is_compatible(\"samsung,starlte\"))\n")
+       "\t    of_machine_is_compatible(\"samsung,starlte\") ||\n"
+       "\t    of_machine_is_compatible(\"samsung,crownlte\"))\n")
 if new not in src:
     assert src.count(old) == 1, "btbcm.c changed: look at the quirk again"
     src = src.replace(old, new)
     if "#include <linux/of.h>" not in src:
         src = src.replace("#include <linux/module.h>\n", "#include <linux/module.h>\n#include <linux/of.h>\n", 1)
-    path.write_text(src)
+path.write_text(src)
 
 path = Path(sys.argv[1]) / "drivers/bluetooth/hci_bcm.c"
 src = path.read_text()
+src = src.replace('of_machine_is_compatible("samsung,starlte"))',
+                  'of_machine_is_compatible("samsung,starlte") ||\n\t\t of_machine_is_compatible("samsung,crownlte"))') if 'of_machine_is_compatible("samsung,crownlte")' not in src else src
 old = ("\telse if (hu->proto->oper_speed)\n"
        "\t\tspeed = hu->proto->oper_speed;\n"
        "\telse\n"
@@ -41,7 +46,8 @@ old = ("\telse if (hu->proto->oper_speed)\n"
        "\t\terr = bcm_set_baudrate(hu, speed);\n")
 new = ("\telse if (hu->proto->oper_speed)\n"
        "\t\tspeed = hu->proto->oper_speed;\n"
-       "\telse if (of_machine_is_compatible(\"samsung,starlte\"))\n"
+       "\telse if (of_machine_is_compatible(\"samsung,starlte\") ||\n"
+       "\t\t of_machine_is_compatible(\"samsung,crownlte\"))\n"
        "\t\tspeed = 3000000;\t/* attached by btattach: Samsung's speed */\n"
        "\telse\n"
        "\t\tspeed = 0;\n\n"
@@ -52,4 +58,4 @@ if new not in src:
     src = src.replace(old, new)
     if "#include <linux/of.h>" not in src:
         src = src.replace("#include <linux/module.h>\n", "#include <linux/module.h>\n#include <linux/of.h>\n", 1)
-    path.write_text(src)
+path.write_text(src)

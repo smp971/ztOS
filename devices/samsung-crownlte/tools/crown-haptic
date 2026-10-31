@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+[ -d /sys/module/crown_haptic ] || insmod /usr/local/lib/crownlte/peripherals/crown-haptic.ko od_boost=100 brake_ms=0 idle_ms=50

@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+insmod /usr/local/lib/crownlte/crown-bt.ko
+i=0
+while [ ! -c /dev/ttySAC0 ]; do
+    i=$((i + 1)); [ "$i" -le 40 ] || exit 1
+    sleep 0.25
+done
+exec /usr/bin/btattach -B /dev/ttySAC0 -P bcm -S 115200
