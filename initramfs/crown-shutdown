@@ -1,0 +1,90 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# systemd pivots to this RAM filesystem, leaving the departing root at /oldroot.
+export PATH=/bin
+/bin/busybox --install -s /bin
+[ "$$" = 1 ] || { echo 'Crown exit ramfs must run as PID 1'; exit 1; }
+# Do not retain an inherited working directory in the departing filesystem.
+cd / || exit 1
+verb=${1:-reboot}
+parameter=
+[ ! -r /run/systemd/reboot-param ] || read -r parameter < /run/systemd/reboot-param
+log() { echo "crown-shutdown: $*" > /dev/kmsg; }
+fail() {
+    log "$*; refusing final reboot before storage is detached"
+    # Keep a diagnostic path after systemd has stopped SSH and the getty.
+    # This is the same physical USB serial console used by the boot stage.
+    if [ -c /dev/ttyGS0 ]; then
+        setsid sh -c 'exec sh -i </dev/ttyGS0 >/dev/ttyGS0 2>&1' &
+    fi
+    while :; do
+        if [ -e /run/crown-shutdown-retry ]; then
+            rm /run/crown-shutdown-retry
+            exec /shutdown "$verb"
+        fi
+        sleep 1
+    done
+}
+mkdir -p /storage/host /storage/base /storage/state
+mount --make-rprivate / || fail 'cannot make mounts private'
+state_mount=$(cat /state-mount)
+case "$state_mount" in /run/ztos-rw|/run/ztos-state) ;; *) fail 'invalid state mount' ;; esac
+for mapping in "ztos-host:host" "ztos-base:base" "${state_mount##*/}:state"; do
+    source=${mapping%:*}
+    destination=${mapping#*:}
+    if grep -q " /oldroot/run/$source " /proc/mounts; then
+        mount --move "/oldroot/run/$source" "/storage/$destination" || fail "cannot move $source"
+    fi
+done
+# systemd-shutdown relocates busy mounts under /run/shutdown/mounts before
+# handing off. Identify the host by device, not its former userspace path.
+if ! grep -q ' /storage/host ' /proc/mounts; then
+    host=$(awk '$1 == "/dev/sda25" && index($2, "/oldroot/") == 1 {print $2}' /proc/mounts)
+    case "$host" in
+        /oldroot/run/shutdown/mounts/*)
+            mount --move "$host" /storage/host || fail 'cannot move relocated host' ;;
+        '') ;;
+        *) fail 'unexpected host mount location' ;;
+    esac
+fi
+# A surviving loop-backed filesystem may have been relocated in the same way.
+while IFS= read -r loop; do
+    case "$loop" in /dev/loop[0-9]*) ;; *) fail 'invalid loop device' ;; esac
+    point=$(awk -v device="$loop" '$1 == device && index($2, "/oldroot/run/shutdown/mounts/") == 1 {print $2}' /proc/mounts)
+    [ -z "$point" ] || umount "$point" || fail "cannot detach relocated $loop"
+done < /loop-devices
+sync
+# Every child sorts before its parent. No lazy or forced detach of writable FS.
+for attempt in 1 2 3; do
+    awk '$2 == "/oldroot" || index($2, "/oldroot/") == 1 {print $2}' /proc/mounts |
+        sort -r | while IFS= read -r point; do
+            point=$(printf '%b' "$point")
+            umount "$point" 2>/dev/null || log "busy mount: $point"
+        done
+    grep -q ' /oldroot ' /proc/mounts || break
+    sleep 1
+done
+if grep -q ' /oldroot ' /proc/mounts; then
+    while IFS= read -r line; do log "mount: $line"; done < /proc/mounts
+    fail 'departing root remains mounted'
+fi
+for point in /storage/state /storage/base; do
+    if grep -q " $point " /proc/mounts; then umount "$point" || fail "cannot detach $point"; fi
+done
+while IFS= read -r loop; do
+    case "$loop" in
+        /dev/loop[0-9]*)
+            # systemd may already have set autoclear and released this loop.
+            if [ -r "/sys/class/block/${loop##*/}/loop/backing_file" ]; then
+                losetup -d "$loop" || fail "cannot release $loop"
+            fi ;;
+        *) fail 'invalid loop device' ;;
+    esac
+done < /loop-devices
+if grep -q ' /storage/host ' /proc/mounts; then
+    umount /storage/host || fail 'cannot detach Android host filesystem'
+fi
+sync
+log 'CROWN_STORAGE_CLEAN_SHUTDOWN'
+[ ! -c /dev/pmsg0 ] || printf 'CROWN_STORAGE_CLEAN_SHUTDOWN\n' > /dev/pmsg0
+exec /bin/crown-power "$verb" "$parameter"

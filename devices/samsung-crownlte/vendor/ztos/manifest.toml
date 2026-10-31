@@ -1,0 +1,43 @@
+# Initial Crown userspace: only capabilities validated in hardware are exposed.
+[device]
+codename = "samsung-crownlte"
+name = "Samsung Galaxy Note9"
+form_factor = "phone"
+scale = 2.5
+
+[gsi]
+min = "0.2.0"
+
+[ial.Perf1]
+backend = "generic"
+hotplug = false
+keep_online = [0, 1, 2, 3, 4, 5, 6, 7]
+idle_mask = ""
+
+[ial.Sleep1]
+backend = "vendor"
+module = "/vendor/ztos/ial/crownlte.py"
+
+[ial.Sensors1]
+backend = "none"
+[ial.Haptics1]
+backend = "none"
+[ial.Lights1]
+backend = "none"
+[ial.Modem1]
+backend = "none"
+[ial.CallAudio1]
+backend = "none"
+[ial.AudioDevice1]
+backend = "none"
+[ial.Accel1]
+backend = "none"
+[ial.Android1]
+backend = "none"
+
+[android]
+binder = "none"
+memory_budget_mb = 0
+
+[boot]
+usb_gadget_udc = "10c00000.usb"

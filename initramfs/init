@@ -93,8 +93,14 @@ usb_up() {
 	echo 0x0104 > "$g/idProduct"
 	mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409"
 	echo "zboot" > "$g/strings/0x409/manufacturer"
-	echo "Galaxy S9 zboot rescue" > "$g/strings/0x409/product"
-	echo "starlte" > "$g/strings/0x409/serialnumber"
+	case "$(tr '\000' '\n' < /proc/device-tree/compatible | head -n1)" in
+		samsung,crownlte)
+			echo "Galaxy Note9 ztOS rescue" > "$g/strings/0x409/product"
+			echo "crownlte" > "$g/strings/0x409/serialnumber" ;;
+		*)
+			echo "Galaxy S9 zboot rescue" > "$g/strings/0x409/product"
+			echo "starlte" > "$g/strings/0x409/serialnumber" ;;
+	esac
 	echo "ncm+acm" > "$g/configs/c.1/strings/0x409/configuration"
 	mkdir -p "$g/functions/ncm.usb0" "$g/functions/acm.GS0"
 	echo 02:5a:42:00:00:01 > "$g/functions/ncm.usb0/dev_addr"
@@ -122,8 +128,16 @@ usb_up() {
 
 rescue() {
 	log "rescue shell: $*"
-	touch /run/zboot.hold 2>/dev/null
+	# A first hardware test must still reset to recovery after the deadline.
+	[ "$(arg zboot.test)" = 1 ] || touch /run/zboot.hold 2>/dev/null
 	usb_up
+	if [ "$(arg zboot.test)" = 1 ]; then
+		# A serial shell remains reachable if the host lacks a CDC-NCM driver.
+		(while :; do
+			setsid sh -c 'exec sh -i </dev/ttyGS0 >/dev/ttyGS0 2>&1'
+			sleep 1
+		done) &
+	fi
 	cp "$LOG" /run/zboot.rescue 2>/dev/null
 	while :; do
 		setsid sh -c 'exec sh -i </dev/tty0 >/dev/tty0 2>&1'
@@ -134,11 +148,135 @@ rescue() {
 # Bring USB up before anything that may fail: it is the way in.
 usb_up
 
+if [ "$(arg zboot.stage)" = storage ] || [ "$(arg zboot.stage)" = touch ] || [ "$(arg zboot.stage)" = system ] || [ "$(arg zboot.stage)" = gpu ] || [ "$(arg zboot.stage)" = radios ]; then
+	# This stage only probes storage. No filesystem is mounted automatically;
+	# also enforce block-layer read-only protection before handing out shells.
+	i=0
+	while [ ! -b /dev/sda25 ] && [ "$i" -lt 100 ]; do
+		sleep 0.1
+		i=$((i + 1))
+	done
+	for disk in /dev/sd?; do
+		[ -b "$disk" ] || continue
+		blockdev --setro "$disk" || rescue "cannot protect $disk read-only"
+		log "storage: $disk read-only=$(blockdev --getro "$disk")"
+	done
+fi
+
 [ "$(arg zboot.rescue)" = 1 ] && rescue "requested on the command line"
 
 # --- find and boot the Arch root ----------------------------------------------
-i=0
 ROOTDEV=
+ROOTFILE=$(arg zboot.rootfile)
+STATEFILE=$(arg zboot.statefile)
+if [ -n "$ROOTFILE" ]; then
+	case "$(arg zboot.stage)" in system|gpu|radios) ;; *) rescue "rootfile requires a userspace test stage" ;; esac
+	[ "$ROOTFILE" = /unencrypted/ztos/crownlte-root.img ] || rescue "unexpected rootfile path"
+	grep -qx PARTNAME=USERDATA /sys/class/block/sda25/uevent || rescue "USERDATA mapping differs"
+	[ "$(blockdev --getro /dev/sda25)" = 1 ] || rescue "USERDATA is not protected read-only"
+	mkdir -p /run/ztos-host /run/ztos-base /run/ztos-rw
+	if [ -n "$STATEFILE" ]; then
+		[ "$(arg zboot.stage)" = radios ] || rescue "saved state requires radios stage"
+		[ "$STATEFILE" = /unencrypted/ztos/crownlte-state.img ] || rescue "unexpected state path"
+		# Linux's whole-disk RO flag also covers every partition. Clear it,
+		# immediately protect each partition, then allow only USERDATA writes.
+		blockdev --setrw /dev/sda || rescue "cannot allow saved-state disk access"
+		for partition in /dev/sda[0-9]*; do
+			blockdev --setro "$partition" || rescue "cannot protect $partition"
+		done
+		blockdev --setrw /dev/sda25 || rescue "cannot allow USERDATA writes"
+		for partition in /dev/sda[0-9]*; do
+			[ "$partition" = /dev/sda25 ] && continue
+			[ "$(blockdev --getro "$partition")" = 1 ] || rescue "unprotected Android partition"
+		done
+		mount -t f2fs -o rw,noatime,nodiscard /dev/sda25 /run/ztos-host || rescue "cannot mount saved-state host"
+	else
+		mount -t f2fs -o ro,norecovery /dev/sda25 /run/ztos-host || rescue "cannot read Android F2FS"
+	fi
+	[ -f "/run/ztos-host$ROOTFILE" ] || rescue "root image missing"
+	ROOTDEV=$(losetup -f) || rescue "no loop device"
+	losetup -r "$ROOTDEV" "/run/ztos-host$ROOTFILE" || rescue "cannot attach root image"
+	mount -t ext4 -o ro,noload "$ROOTDEV" /run/ztos-base || rescue "cannot mount root image"
+	STATEDEV=
+	STATE_MOUNT=/run/ztos-rw
+	if [ -n "$STATEFILE" ]; then
+		[ -f "/run/ztos-host$STATEFILE" ] && [ ! -L "/run/ztos-host$STATEFILE" ] || rescue "state image missing or symlink"
+		STATEDEV=$(losetup -f) || rescue "no state loop device"
+		losetup "$STATEDEV" "/run/ztos-host$STATEFILE" || rescue "cannot attach state image"
+		STATE_MOUNT=/run/ztos-state
+		mkdir -p "$STATE_MOUNT"
+		mount -t ext4 -o rw,noatime,nosuid,nodev "$STATEDEV" "$STATE_MOUNT" || rescue "cannot mount state image"
+		[ "$(cat "$STATE_MOUNT/.ztos-state-version")" = crownlte-overlay-v1 ] || rescue "wrong state version"
+		for name in upper work; do
+			[ -d "$STATE_MOUNT/$name" ] && [ ! -L "$STATE_MOUNT/$name" ] || rescue "invalid state overlay directories"
+		done
+	else
+		mount -t tmpfs -o size=2048M,mode=0700 tmpfs "$STATE_MOUNT" || rescue "cannot allocate RAM overlay"
+		mkdir -p "$STATE_MOUNT/upper" "$STATE_MOUNT/work"
+	fi
+	mount -t overlay overlay -o lowerdir=/run/ztos-base,upperdir="$STATE_MOUNT/upper",workdir="$STATE_MOUNT/work" /newroot || rescue "cannot mount writable overlay"
+	if [ "$(arg zboot.stage)" = gpu ] || [ "$(arg zboot.stage)" = radios ]; then
+		# Only the explicitly selected, hardware-validated GPU stage overrides
+		# the base image's software rendering profile. Changes remain in RAM.
+		cat > /newroot/etc/ztos/session.env <<'GPUENV'
+export WLR_RENDERER=gles2
+export WLR_NO_HARDWARE_CURSORS=1
+export WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128
+GPUENV
+	fi
+	if [ "$(arg zboot.stage)" = radios ]; then
+		KITDIR=/run/ztos-host/unencrypted/ztos
+		[ -f "$KITDIR/crownlte-connectivity-kit.tar.gz" ] || rescue "Crown connectivity kit missing"
+		(cd "$KITDIR" && sha256sum -c crownlte-connectivity-kit.sha256) || rescue "Crown kit checksum differs"
+		tar -xzf "$KITDIR/crownlte-connectivity-kit.tar.gz" -C /newroot || rescue "cannot extract Crown connectivity kit"
+		[ "$(cat /newroot/usr/local/lib/crownlte/kit-version)" = crownlte-radios-v1 ] || rescue "wrong Crown kit version"
+		mkdir -p /newroot/usr/local/sbin /newroot/etc/systemd/system/multi-user.target.wants
+		cat > /newroot/usr/local/sbin/crown-charge <<'CHARGE'
+#!/bin/sh
+set -eu
+fg=/sys/class/power_supply/max170xx_battery
+[ -d "$fg" ] || fg=/sys/class/power_supply/max77705-battery
+charger=/sys/class/power_supply/max77705-charger
+temperature=$(cat "$fg/temp")
+case "$temperature" in ''|*[!0-9-]*) exit 1 ;; esac
+[ "$temperature" -ge 0 ] && [ "$temperature" -le 430 ] || {
+    echo inhibit-charge > "$charger/charge_behaviour"
+    echo "Crown charging inhibited: battery temperature outside initial test range"
+    exit 1
+}
+echo 1000000 > "$charger/input_current_limit"
+echo 1000000 > "$charger/constant_charge_current"
+echo auto > "$charger/charge_behaviour"
+echo "Crown charge current: $(cat "$charger/constant_charge_current") uA; input: $(cat "$charger/input_current_limit") uA; temperature: $temperature tenths C"
+CHARGE
+		chmod 755 /newroot/usr/local/sbin/crown-charge
+		cat > /newroot/etc/systemd/system/crown-charge.service <<'CHARGEUNIT'
+[Unit]
+Description=Initial Crown charging limit (1 A)
+After=systemd-udev-settle.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/crown-charge
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+CHARGEUNIT
+		ln -s ../crown-charge.service /newroot/etc/systemd/system/multi-user.target.wants/crown-charge.service
+	fi
+	log "rootfile: $ROOTFILE on $ROOTDEV; writable overlay: $STATE_MOUNT; base and Android system partitions read-only"
+	# Provide systemd's exit-ramfs interface so loops and their host filesystem
+	# can be detached after the overlay root has stopped being used.
+	mkdir -p /run/initramfs/bin /run/initramfs/dev /run/initramfs/proc /run/initramfs/sys /run/initramfs/run /run/initramfs/oldroot
+	cp /bin/busybox /run/initramfs/bin/busybox || rescue "cannot stage shutdown busybox"
+	ln -s busybox /run/initramfs/bin/sh
+	cp /crown-power /run/initramfs/bin/crown-power || rescue "cannot stage final power helper"
+	cp /crown-shutdown /run/initramfs/shutdown || rescue "cannot stage exit ramfs"
+	printf '%s\n' "$ROOTDEV" > /run/initramfs/loop-devices
+	[ -z "$STATEDEV" ] || printf '%s\n' "$STATEDEV" >> /run/initramfs/loop-devices
+	printf '%s\n' "$STATE_MOUNT" > /run/initramfs/state-mount
+else
+i=0
 while [ "$i" -lt 12 ]; do
 	ROOTDEV=$(findfs LABEL=ZR_ARCH 2>/dev/null) && [ -n "$ROOTDEV" ] && break
 	i=$((i + 1))
@@ -149,6 +287,7 @@ log "block devices after $i tries: $(echo $(ls /sys/class/block 2>/dev/null | gr
 
 log "ZR_ARCH is $ROOTDEV"
 mount -t ext4 -o ro "$ROOTDEV" /newroot || rescue "mount of $ROOTDEV failed"
+fi
 [ -x /newroot/sbin/init ] || [ -L /newroot/sbin/init ] || {
 	umount /newroot
 	rescue "no /sbin/init on ZR_ARCH"

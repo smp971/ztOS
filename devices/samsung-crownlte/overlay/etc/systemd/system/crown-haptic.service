@@ -1,0 +1,11 @@
+[Unit]
+Description=Note9 MAX77705 haptic feedback
+Before=greetd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/crown-haptic
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

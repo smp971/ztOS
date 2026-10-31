@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Local Music
+Comment=Play music files stored on this phone
+Exec=/usr/local/bin/crown-media
+Icon=audio-x-generic
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=com.zerone.localmusic

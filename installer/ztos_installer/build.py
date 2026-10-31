@@ -54,7 +54,7 @@ def say(*words):
 
 # a target's device layer (devices/<dir>/: manifest, layer.sh, packages.txt);
 # the GSI has none (design/ztOSIAL.md)
-DEVICES = {"starlte": "samsung-starlte", "qemu": "qemu-virt"}
+DEVICES = {"starlte": "samsung-starlte", "crownlte": "samsung-crownlte", "qemu": "qemu-virt"}
 
 
 def gsi_version() -> str:
@@ -159,7 +159,7 @@ rm -f "$R/etc/resolv.conf"; cp -L /etc/resolv.conf "$R/etc/resolv.conf"
 ch() { chroot "$R" /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/bin HOME=/root LANG=C.UTF-8 "$@"; }
 P="pacman --disable-sandbox --noconfirm"
 
-if [ "$TARGET" = starlte ]; then
+if [ "$TARGET" = starlte ] || [ "$TARGET" = crownlte ]; then
 	# the kernel is ztOS's own boot image there, never a package
 	sed -i 's/^#\?IgnorePkg *=.*/IgnorePkg   = linux-aarch64 linux-aarch64-headers/' "$R/etc/pacman.conf"
 fi
@@ -306,6 +306,9 @@ step "turning on ztOS's services"
 # GPU rests at its lowest step and ztMETRO lags)
 for u in greetd NetworkManager systemd-resolved sshd systemd-pstore ztos-pstore-keep ztoscoresensorframework ztos-update-check.timer \
 		ztos-iald zrnperfd waydroid-container ztos-waydroid-images; do
+	case "$TARGET:$u" in
+		crownlte:ztoscoresensorframework|crownlte:ztos-update-check.timer|crownlte:zrnperfd|crownlte:waydroid-container|crownlte:ztos-waydroid-images) continue ;;
+	esac
 	ch systemctl enable "$u" > /dev/null 2>&1
 done
 for u in systemd-networkd getty@tty1; do

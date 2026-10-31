@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Voice Recorder
+Comment=Record and replay voice notes
+Exec=/usr/local/bin/crown-media --recorder
+Icon=audio-input-microphone
+Terminal=false
+Categories=AudioVideo;Audio;Recorder;
+StartupWMClass=com.zerone.recorder

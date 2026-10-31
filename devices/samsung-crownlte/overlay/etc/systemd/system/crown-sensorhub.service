@@ -1,0 +1,15 @@
+[Unit]
+Description=Note9 BCM4775 sensor hub with original Crown firmware
+Requires=crown-modem-prepare.service
+After=crown-modem-prepare.service systemd-logind.service
+Before=crown-sensord.service
+
+[Service]
+# The compatibility library cannot yet forward Android SystemSuspend locks.
+# Block Linux sleep until a real wake-lock bridge is implemented and tested.
+ExecStart=/usr/bin/systemd-inhibit --what=sleep --mode=block --who=CrownSensorHub --why=Sensor-hub-wake-lock-bridge-pending /usr/local/sbin/crown-sensorhub
+Restart=no
+TimeoutStopSec=8
+
+[Install]
+WantedBy=multi-user.target
