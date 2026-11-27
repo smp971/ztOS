@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ZrnDevTest
+Comment=Hardware status, system logs and interface diagnostics
+Exec=zrndevtest
+TryExec=zrndevtest
+Icon=applications-development
+Terminal=false
+Categories=Development;
+StartupWMClass=zrndevtest

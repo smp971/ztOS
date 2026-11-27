@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+Comment=System and application settings
+Exec=ztsettings
+TryExec=ztsettings
+Icon=preferences-system
+Terminal=false
+Categories=Settings;
+StartupWMClass=ztsettings

@@ -1,0 +1,13 @@
+[Desktop Entry]
+# Crown exposes the installed browser alongside Superscan. Use native Wayland;
+# WhatsApp retains its separate headless profile and launcher.
+Type=Application
+Name=Chromium
+Comment=Web browser
+Exec=/usr/bin/chromium --ozone-platform=wayland %U
+TryExec=/usr/bin/chromium
+Icon=chromium
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+StartupWMClass=chromium

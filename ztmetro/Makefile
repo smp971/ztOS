@@ -239,7 +239,9 @@ install: check-arch
 	install -Dm755 splash/ztos-splash /usr/local/bin/ztos-splash
 	install -Dm755 apps/ztapps /usr/local/bin/ztapps
 	install -Dm755 settings/ztsettings /usr/local/bin/ztsettings
+	install -Dm644 settings/ztsettings.desktop /usr/local/share/applications/ztsettings.desktop
 	install -Dm755 devtest/zrndevtest /usr/local/bin/zrndevtest
+	install -Dm644 devtest/zrndevtest.desktop /usr/local/share/applications/zrndevtest.desktop
 	install -Dm755 devices/ztdevices /usr/local/bin/ztdevices
 	install -Dm644 devices/ztdevices.desktop /usr/local/share/applications/ztdevices.desktop
 	install -Dm644 devices/ztdevices.svg /usr/local/share/icons/hicolor/scalable/apps/ztdevices.svg

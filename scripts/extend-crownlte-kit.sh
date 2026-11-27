@@ -30,6 +30,7 @@ install -m644 "$B/audio-userspace/usr/lib/ladspa/lsp-plugins-ladspa.so" "$KIT/us
 cp -a "$REPO/devices/samsung-crownlte/overlay/etc/." "$KIT/etc/"
 mkdir -p "$KIT/usr/local/share/applications" "$KIT/usr/local/bin"
 cp -a "$REPO/devices/samsung-crownlte/overlay/usr/local/share/applications/." "$KIT/usr/local/share/applications/"
+install -m644 "$REPO/ztmetro/settings/ztsettings.desktop" "$REPO/ztmetro/devtest/zrndevtest.desktop" "$KIT/usr/local/share/applications/"
 install -m755 "$REPO/devices/samsung-crownlte/tools/crown-media.py" "$KIT/usr/local/bin/crown-media"
 # Preserve the installed ARM64 browser; the Crown launcher only changes its
 # buffer-layout environment. Never replace this payload with a host executable.

@@ -42,6 +42,10 @@ UI = {
     'sounds/ztos-sounds': 'usr/local/bin/ztos-sounds',
     'browser/superscan': 'usr/local/lib/crownlte/browser/superscan.bin',
 }
+MENU = {
+    'settings/ztsettings.desktop': 'usr/local/share/applications/ztsettings.desktop',
+    'devtest/zrndevtest.desktop': 'usr/local/share/applications/zrndevtest.desktop',
+}
 
 
 def run(*args):
@@ -96,7 +100,7 @@ def restore(backup):
     record = json.loads((backup / 'record.json').read_text())
     for item in record['files']:
         rel = item['path']
-        if rel not in set(UI.values()) | {'usr/local/share/ztos/crown-ui-update.json'}:
+        if rel not in set(UI.values()) | set(MENU.values()) | {'usr/local/share/ztos/crown-ui-update.json'}:
             raise SystemExit('Unexpected rollback destination')
         target = Path('/') / rel
         if item['existed']:
@@ -162,6 +166,11 @@ def main():
         if script and not data.startswith(b'#!/bin/sh'):
             raise SystemExit('Invalid session script')
         payload[rel] = (data, 0o755)
+    for source, rel in MENU.items():
+        data = (build / source).read_bytes()
+        if not data.startswith(b'[Desktop Entry]\n'):
+            raise SystemExit('Invalid desktop entry: ' + source)
+        payload[rel] = (data, 0o644)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     backup = BASE / 'ui-updates' / stamp
     backup.mkdir(parents=True, mode=0o700, exist_ok=False)

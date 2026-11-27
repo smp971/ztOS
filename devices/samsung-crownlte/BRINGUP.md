@@ -2,6 +2,15 @@
 
 ## Live diagnosis and userspace update: 2026-11-27
 
+App-menu follow-up: the installed Settings and ZrnDevTest binaries lacked
+desktop entries, so they could appear as built-in Start tiles but not in the
+all-apps list. Their entries are now included in the native install, Crown UI
+updater/rollback and persistent kit. Crown also exposes the already installed
+Chromium browser with native Wayland, alongside Superscan; WhatsApp's separate
+headless profile is unchanged. Desktop validation passed and the running
+indexer rebuilt the list from 22 to 25 applications. The compositor reloaded
+it without a session restart or phone reboot.
+
 Follow-up on the same day: one CP-only reset recovered the physically inserted
 SIM1. Subsequent checks reported `sim=ready`, `registered=home`, `tech=4G`
 and an assigned IPv4 context. HTTPS attempts had no receive traffic; the user
