@@ -1,0 +1,16 @@
+// Crown's own service controls, with the same local-session restrictions as
+// 50-ztos-devices.rules. This grants no arbitrary systemd or module access.
+var crownUnits = [
+    "crown-charge.service", "crown-audio.service", "crown-haptic.service",
+    "crown-led.service", "crown-score.service", "crown-bluetooth.service", "crown-bluetooth-ready.service",
+    "crown-modem-prepare.service", "crown-modem-boot.service", "crown-network.service",
+    "crown-modem-check.service", "crown-sensorhub.service", "crown-sensord.service"
+];
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.local && subject.active && subject.isInGroup("wheel") &&
+        crownUnits.indexOf(action.lookup("unit")) >= 0 &&
+        ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0) {
+        return polkit.Result.YES;
+    }
+});

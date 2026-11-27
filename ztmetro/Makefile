@@ -316,6 +316,12 @@ check-auth: xdg-shell-protocol.h $(RETRO_DEPS) $(DM_WRAP)
 		-o /tmp/ztmetro-auth-test tests/auth-prompt.c $(RETRO) $(DM_WRAP) $(DM_WRAP_LDFLAGS) $(shell pkg-config --libs $(PKGS)) -lm
 	/tmp/ztmetro-auth-test
 
+.PHONY: check-backend-cleanup
+check-backend-cleanup: xdg-shell-protocol.h $(RETRO_DEPS) $(DM_WRAP)
+	$(CC) -O0 -g $(WARN) -DWLR_USE_UNSTABLE -I. $(shell pkg-config --cflags $(PKGS)) \
+		-o /tmp/ztmetro-backend-test tests/backend-cleanup.c $(RETRO) $(DM_WRAP) $(DM_WRAP_LDFLAGS) $(shell pkg-config --libs $(PKGS)) -lm
+	/tmp/ztmetro-backend-test
+
 .PHONY: check-demoloop-stop
 check-demoloop-stop:
 	$(CC) -std=c11 -Wall -Wextra -Werror -o /tmp/ztmetro-demoloop-stop-test demoloop/test-stop-key.c

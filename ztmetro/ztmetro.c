@@ -9795,9 +9795,9 @@ static void draw_sensorhub_fail(struct zt_server *server) {
 	double text_y = cy + tri_h / 2.0 + 36.0;
 
 	cairo_set_source_rgb(cr, ink, ink, ink);
-	wrap_text(cr, "ztOSCoreSensorFramework failed to initialize Samsung SensorHub. "
-		"Please do a hot reboot (Go to twrp -> Reboot -> System). "
-		"This will initialize the SensorHub.", FONT_REGULAR, 17.0, pad, text_y, content_w, true);
+	wrap_text(cr, "The sensor hub did not start. Restarting through your device's "
+		"recovery may reset it. You can also continue with sensors unavailable.",
+		FONT_REGULAR, 17.0, pad, text_y, content_w, true);
 
 	/* Buttons: Reboot & Continue Anyway, positioned comfortably above nav bar */
 	double btn_h = 48.0;
@@ -9811,7 +9811,7 @@ static void draw_sensorhub_fail(struct zt_server *server) {
 	cairo_rectangle(cr, pad, btn_y1, content_w, btn_h);
 	cairo_stroke(cr);
 	cairo_set_source_rgb(cr, ink, ink, ink);
-	draw_text(cr, "Reboot", FONT_SEMIBOLD, 16.0, pad, btn_y1, content_w, btn_h, true);
+	draw_text(cr, "Restart to recovery", FONT_SEMIBOLD, 16.0, pad, btn_y1, content_w, btn_h, true);
 
 	/* Continue Anyway button */
 	if (light) {
@@ -17827,7 +17827,7 @@ static void ctl_command(struct zt_server *server, char *line) {
 		activity(server);
 	} else if (strncmp(line, "dialog_sensorhub", 16) == 0) {
 		dialog_show(server, "ztOSCoreSensorFramework",
-			"Sensor hub failed to initialize, please boot into twrp, go to reboot, and select system to hot-boot the sensor hub.",
+			"The sensor hub did not start. Restarting through recovery may reset it. This is a workaround; you can also continue without sensors.",
 			"reboot to recovery", "reboot_recovery",
 			"stop sensor hub in this boot", "stop_sensorhub");
 	} else if (strncmp(line, "dialog_close", 12) == 0) {
@@ -22999,6 +22999,21 @@ static int render_to_files(struct zt_server *server, const char *dir) {
 	return 0;
 }
 
+/* wlroots 0.20 requires listeners to be detached before backend finish.
+ * Otherwise normal session teardown aborts and greetd starts a new shell. */
+static void destroy_backend(struct zt_server *server) {
+	if (server->new_input.link.prev) {
+		wl_list_remove(&server->new_input.link);
+		wl_list_init(&server->new_input.link);
+	}
+	if (server->new_output.link.prev) {
+		wl_list_remove(&server->new_output.link);
+		wl_list_init(&server->new_output.link);
+	}
+	wlr_backend_destroy(server->backend);
+	server->backend = NULL;
+}
+
 int main(int argc, char *argv[]) {
 	if (argc > 1 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)) {
 		printf("ztMETRO %s%s%s%s (wlroots %s)\n", ZTMETRO_VERSION, ZTMETRO_COMMIT[0] ? " (" : "",
@@ -23127,7 +23142,7 @@ int main(int argc, char *argv[]) {
 	if (window && !asked) {
 		wlr_log(WLR_ERROR, "nested: in a window on another desktop without ZTMETRO_NESTED=1; "
 			"start it with scripts/dev/run-nested.sh");
-		wlr_backend_destroy(server.backend);
+		destroy_backend(&server);
 		return 1;
 	}
 	if (asked && !window) {
@@ -23255,11 +23270,11 @@ int main(int argc, char *argv[]) {
 
 	const char *socket = wl_display_add_socket_auto(server.wl_display);
 	if (!socket) {
-		wlr_backend_destroy(server.backend);
+		destroy_backend(&server);
 		return 1;
 	}
 	if (!wlr_backend_start(server.backend)) {
-		wlr_backend_destroy(server.backend);
+		destroy_backend(&server);
 		wl_display_destroy(server.wl_display);
 		return 1;
 	}
@@ -23273,6 +23288,11 @@ int main(int argc, char *argv[]) {
 	setenv("WAYLAND_DISPLAY", socket, true);
 	setenv("XDG_SESSION_TYPE", "wayland", true);
 	setenv("XDG_CURRENT_DESKTOP", "ztMETRO", true);
+	if (!g_nested) {
+		/* D-Bus activated GTK apps/portals otherwise inherit the user manager's
+		 * pre-compositor environment and fail to find their Wayland display. */
+		run_detached("sh", "-c", "dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP ZTRF_SHELL_STYLE >/dev/null 2>&1", NULL);
+	}
 	setenv("QT_QPA_PLATFORM", "wayland", false);
 	setenv("GDK_BACKEND", "wayland", false);
 	setenv("MOZ_ENABLE_WAYLAND", "1", false);
@@ -23339,7 +23359,7 @@ int main(int argc, char *argv[]) {
 	wl_display_destroy_clients(server.wl_display);
 	wlr_allocator_destroy(server.allocator);
 	wlr_renderer_destroy(server.renderer);
-	wlr_backend_destroy(server.backend);
+	destroy_backend(&server);
 	wl_display_destroy(server.wl_display);
 	return 0;
 }

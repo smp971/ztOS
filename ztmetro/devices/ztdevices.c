@@ -36,6 +36,7 @@ enum kind { K_SYSTEM, K_USER, K_MODULE, K_SESSION };
 
 #define COMPONENTS	"/etc/ztoscoru/components"
 #define OLD_COMPONENTS	"/etc/ztoscoresensorframework/components"	/* before 2026-11; remove later */
+#define DEVICE_COMPONENTS "/etc/ztdevices/components"
 #define MAX_ITEMS	96
 #define REFRESH_MS	3000
 #define RED		0xe51400	/* Windows Phone's red and amber */
@@ -55,6 +56,7 @@ struct item {
 static struct item items[MAX_ITEMS];
 static int n_items, shown = -1;	/* shown: the item on the detail page */
 static bool loaded;
+static bool crown;
 
 /* The units that are ztOS beyond ztOSCOR-U's own list. */
 static const struct { enum kind kind; const char *id, *title; } extras[] = {
@@ -98,7 +100,12 @@ static struct item *add(enum kind kind, const char *id, const char *title) {
 }
 
 static void load_list(void) {
-	FILE *f = fopen(COMPONENTS, "r");
+	char compatible[128] = "";
+	zmc_read_file("/proc/device-tree/compatible", compatible, sizeof(compatible));
+	crown = strcmp(compatible, "samsung,crownlte") == 0;
+	FILE *f = fopen(DEVICE_COMPONENTS, "r");
+	bool device_list = f != NULL;
+	if (!f) f = fopen(COMPONENTS, "r");
 	if (!f) {		/* a phone not yet moved to ztOSCOR-U */
 		f = fopen(OLD_COMPONENTS, "r");
 	}
@@ -121,12 +128,14 @@ static void load_list(void) {
 			add(K_SYSTEM, id, title);
 		} else if (strcmp(kind, "session") == 0) {
 			add(K_SESSION, id, title);
+		} else if (strcmp(kind, "user") == 0) {
+			add(K_USER, id, title);
 		}
 	}
 	if (f) {
 		fclose(f);
 	}
-	for (size_t i = 0; i < sizeof(extras) / sizeof(extras[0]); i++) {
+	for (size_t i = 0; !device_list && i < sizeof(extras) / sizeof(extras[0]); i++) {
 		add(extras[i].kind, extras[i].id, extras[i].title);
 	}
 }
@@ -627,6 +636,7 @@ static bool exists(const char *path) {
 static const struct device {
 	const char *what, *paths[4], *missing, *unit;
 	int radio;
+	const char *ready_path, *ready_value, *present;
 } devices[] = {
 	{ "Display", { "/sys/class/drm/card0-DSI-1", "/sys/class/drm/card1-DSI-1", "/sys/class/graphics/fb0" }, "no panel driver" },
 	{ "Display brightness", { "/sys/class/backlight/s9p-panel/brightness" }, "no backlight device: dimmed in software" },
@@ -647,7 +657,35 @@ static const struct device {
 	{ "Processor idle states", { "/sys/devices/system/cpu/cpu0/cpuidle" }, "cores only wait for interrupts", "zrn-cpuidle.service" },
 };
 
+static const struct device crown_devices[] = {
+	{ "Display (HA8)", { "/sys/class/graphics/fb0" }, "no framebuffer", .present = "boot framebuffer; native panel driver pending" },
+	{ "Display brightness", { NULL }, "software dimming; native HA8 brightness unavailable" },
+	{ "Graphics (Mali-G72)", { "/sys/class/drm/renderD128/device/driver" }, "no GPU render device", .present = "Panfrost render device available" },
+	{ "Touch screen", { "/sys/bus/i2c/drivers/s6sy761/0-0048" }, "touch controller not bound" },
+	{ "Wi-Fi", { "/sys/class/net/wlp1s0" }, "no Wi-Fi interface", "NetworkManager.service", 1 },
+	{ "Bluetooth", { "/sys/class/bluetooth/hci0" }, "no controller", "crown-bluetooth.service", 2 },
+	{ "Mobile network", { "/dev/umts_ipc0" }, "modem not online", "crown-network.service", .ready_path = "/sys/devices/platform/10000.mif_pdata/modem_state", .ready_value = "ONLINE" },
+	{ "Battery", { "/sys/class/power_supply/max170xx_battery" }, "no fuel gauge" },
+	{ "Charger", { "/sys/class/power_supply/max77705-charger" }, "no charger driver", "crown-charge.service" },
+	{ "Media sound and microphone", { "/dev/snd/pcmC0D0p" }, "no Crown sound device", "crown-audio.service", .present = "Crown media driver; call audio unvalidated" },
+	{ "Sensors", { "/run/ztoscsf-sensors/light" }, "hub not ready; recovery restart may help", "crown-sensord.service", .ready_path = "/sys/class/sec/sensorhub/ready", .ready_value = "1" },
+	{ "Vibration", { "/sys/class/input/event2/device/name" }, "no haptic input device", "crown-haptic.service", .ready_path = "/sys/class/input/event2/device/name", .ready_value = "zrn-haptic" },
+	{ "Notification light", { "/sys/class/leds/red:status" }, "no Crown RGB driver", "crown-led.service" },
+	{ "Flashlight", { "/sys/class/leds/white:torch" }, "not validated yet" },
+	{ "Camera", { "/dev/video0" }, "not implemented yet" },
+	{ "S Pen", { NULL }, "input driver not implemented yet" },
+	{ "Fingerprint", { NULL }, "not implemented; secure-world integration required" },
+	{ "SCORE model accelerator", { "/dev/score" }, "boot self-test not passed", "crown-score.service", .ready_path = "/run/crown-score-verified", .ready_value = "integer and fractional Q16 matrix checks passed at boot clock", .present = "SCORE arithmetic self-test passed" },
+	{ "Android Binder", { "/dev/binderfs/binder", "/dev/binder" }, "kernel Binder support not enabled" },
+	{ "Processor idle states", { "/sys/devices/system/cpu/cpu0/cpuidle" }, "no CPU idle driver; cores wait for interrupts" },
+};
+
 static bool device_present(const struct device *d) {
+	if (d->ready_path) {
+		char value[64] = "";
+		zmc_read_file(d->ready_path, value, sizeof(value));
+		if (strcmp(value, d->ready_value) != 0) return false;
+	}
 	for (int i = 0; i < 4 && d->paths[i]; i++) {
 		if (exists(d->paths[i])) {
 			return true;
@@ -737,11 +775,13 @@ static bool bluetooth_on(void) {
 
 static double draw_devices(cairo_t *cr) {
 	double y = zmc_pivot_next(cr, "devices", "services", ACT_OPEN, PAGE_SERVICES);
-	for (size_t i = 0; i < sizeof(devices) / sizeof(devices[0]); i++) {
-		const struct device *d = &devices[i];
+	const struct device *list = crown ? crown_devices : devices;
+	size_t count = crown ? sizeof(crown_devices) / sizeof(crown_devices[0]) : sizeof(devices) / sizeof(devices[0]);
+	for (size_t i = 0; i < count; i++) {
+		const struct device *d = &list[i];
 		bool in = device_present(d);
 		int linked = item_named(d->unit);
-		const char *detail = in ? "working" : d->missing;
+		const char *detail = in ? (d->present ? d->present : "driver available") : d->missing;
 		if (d->radio == 1 && in && !wifi_on) {
 			detail = "switched off";
 		} else if (d->radio == 2 && in && !bluetooth_on()) {

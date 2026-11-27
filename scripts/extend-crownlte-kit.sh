@@ -44,7 +44,7 @@ PY
 mkdir -p "$KIT/usr/local/lib/crownlte/browser"
 install -m755 "$B/crown-browser/superscan.bin" "$KIT/usr/local/lib/crownlte/browser/"
 install -m755 "$REPO/devices/samsung-crownlte/tools/crown-superscan" "$KIT/usr/local/bin/superscan"
-for name in crown-audio crown-modem-prepare crown-modem-boot crown-modem-check crown-sensorhub crown-sensord crown-haptic; do
+for name in crown-audio crown-modem-prepare crown-modem-boot crown-modem-check crown-sensorhub crown-sensord crown-haptic crown-led crown-score; do
     install -m755 "$REPO/devices/samsung-crownlte/tools/$name" "$KIT/usr/local/sbin/$name"
 done
 install -m755 "$REPO/devices/samsung-crownlte/tools/crown-diagnose.py" "$KIT/usr/local/sbin/crown-diagnose"
@@ -58,8 +58,20 @@ grep -q 'crown_patch.inc' "$PERIPHERALS/bbd.c"
 mkdir -p "$KIT/usr/local/lib/crownlte/peripherals"
 install -m644 "$PERIPHERALS/zrn-bbd.ko" "$KIT/usr/local/lib/crownlte/peripherals/"
 install -m644 "$B/crown-peripherals/haptic/crown-haptic.ko" "$KIT/usr/local/lib/crownlte/peripherals/"
+install -m644 "$B/crown-lights/crown-led.ko" "$KIT/usr/local/lib/crownlte/peripherals/"
 install -m644 "$B/crown-peripherals-userspace/libhardware_legacy.so" "$KIT/usr/local/lib/crownlte/peripherals/"
-install -m755 "$B/crown-peripherals-userspace/ztoscsf-sensord" "$KIT/usr/local/sbin/"
+install -m755 "${CROWN_SENSORD_BINARY:?set the tested 0.2.3 native sensor-daemon path}" "$KIT/usr/local/sbin/ztoscsf-sensord"
+# Firmware stays in the private kit. crown-score repeats configuration, clock,
+# firmware and arithmetic checks at boot; merely loading a module is insufficient.
+SCORE_FW=${CROWN_SCORE_FIRMWARE:?set the private Crown camera1 SCORE firmware directory}
+mkdir -p "$KIT/usr/local/lib/crownlte/score" "$KIT/usr/lib/firmware/crownlte/score/camera1"
+(cd "$SCORE_FW" && sha256sum -c "$B/crown-score/firmware.sha256")
+install -m644 "$B/crown-score/crown-score.ko" "$B/crown-score/firmware.sha256" \
+ "$B/crown-score/kernel-config.sha256" "$KIT/usr/local/lib/crownlte/score/"
+install -m755 "$B/crown-score/scoremm" "$KIT/usr/local/lib/crownlte/score/"
+for name in score_mc_pmw.bin score_mc_dmb.bin score_kc1_pmw.bin score_kc1_dmb.bin; do
+ install -m644 "$SCORE_FW/$name" "$KIT/usr/lib/firmware/crownlte/score/camera1/"
+done
 cat > "$KIT/etc/systemd/system/crown-audio.service" <<'UNIT'
 [Unit]
 Description=Crown media audio with MAX98512 revision detection
@@ -131,7 +143,7 @@ else:
 PY
 SH
 chmod 755 "$KIT/usr/local/sbin/crown-network-select"
-for name in crown-audio crown-network crown-modem-check crown-sensorhub crown-sensord crown-haptic; do
+for name in crown-audio crown-network crown-modem-check crown-sensorhub crown-sensord crown-haptic crown-led crown-score; do
     ln -sfn "/etc/systemd/system/$name.service" "$KIT/etc/systemd/system/multi-user.target.wants/$name.service"
 done
 # DrvFS source checkouts may report 0777. Configuration must not inherit that.

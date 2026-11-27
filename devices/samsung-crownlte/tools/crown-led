@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+[ -d /sys/module/crown_led ] || insmod /usr/local/lib/crownlte/peripherals/crown-led.ko max_percent=2
+for color in red green blue; do test -e "/sys/class/leds/$color:status/brightness"; done

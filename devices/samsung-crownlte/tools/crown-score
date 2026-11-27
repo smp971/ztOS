@@ -1,0 +1,83 @@
+#!/usr/bin/python3
+"""Start SCORE at its verified boot clock and check its arithmetic each boot.
+
+No clock/voltage writes, reset loops or module unloading. A failing DSP stays
+unavailable until the next controlled restart. Private firmware is hash checked.
+"""
+import gzip
+import hashlib
+import mmap
+import os
+from pathlib import Path
+import re
+import struct
+import subprocess
+
+BASE = Path('/usr/local/lib/crownlte/score')
+MARKER = Path('/run/crown-score-verified')
+FIRMWARE = Path('/usr/lib/firmware/crownlte/score/camera1')
+FILES = {'score_mc_pmw.bin', 'score_mc_dmb.bin', 'score_kc1_pmw.bin', 'score_kc1_dmb.bin'}
+
+
+def config_hash(text):
+    config = sorted(line for line in text.splitlines() if line.startswith('CONFIG_'))
+    return hashlib.sha256(('\n'.join(config) + '\n').encode()).hexdigest()
+
+
+def check_registers(read):
+    if any(read(a) & 15 != 15 for a in (0x1406402c, 0x14064034)):
+        raise RuntimeError('SCORE power domains are not on')
+    if any(read(a) & 1 for a in (0x16c20000, 0x16c30000)):
+        raise RuntimeError('SCORE SYSMMUs are enabled; physical DMA is unavailable')
+    if (read(0x1a24104c) & 3, read(0x1a241844) & 15) != (2, 11):
+        raise RuntimeError('SCORE clock differs from the tested 33 MHz boot setting')
+
+
+def correct_result(output, fractional):
+    if fractional:
+        return re.search(r'floor-each-32 0 \(of 256\)', output) is not None
+    return re.search(r'^A\.B\s+0 / 256 wrong ', output, re.M) is not None
+
+
+def main():
+    if b'samsung,crownlte' not in Path('/proc/device-tree/compatible').read_bytes().split(b'\0'):
+        raise SystemExit('Not Crown')
+    MARKER.unlink(missing_ok=True)
+    with gzip.open('/proc/config.gz', 'rt') as stream:
+        if config_hash(stream.read()) != (BASE / 'kernel-config.sha256').read_text().strip():
+            raise SystemExit('SCORE module was built for a different kernel configuration')
+    vermagic = subprocess.check_output(['modinfo', '-F', 'vermagic', str(BASE / 'crown-score.ko')], text=True)
+    if vermagic.split()[0] != os.uname().release:
+        raise SystemExit('SCORE kernel release mismatch')
+    entries = dict(line.split() for line in (BASE / 'firmware.sha256').read_text().splitlines())
+    if set(entries.values()) != FILES or len(entries) != 4:
+        raise SystemExit('Unexpected SCORE firmware manifest')
+    for digest, name in entries.items():
+        with (FIRMWARE / name).open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
+                raise SystemExit('SCORE firmware checksum mismatch: ' + name)
+    fd = os.open('/dev/mem', os.O_RDONLY | os.O_SYNC)
+    try:
+        def read(address):
+            with mmap.mmap(fd, 4096, flags=mmap.MAP_SHARED, prot=mmap.PROT_READ,
+                           offset=address & ~4095) as page:
+                return struct.unpack_from('<I', page, address & 4095)[0]
+        check_registers(read)
+    finally:
+        os.close(fd)
+    if not Path('/sys/module/crown_score').exists():
+        subprocess.run(['insmod', str(BASE / 'crown-score.ko')], check=True, timeout=10)
+    for fractional in (False, True):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ('FRAC', 'SCALE', 'SHIFT', 'ONES', 'IDENT', 'PROBE', 'PROBEB', 'NZ', 'DUMP', 'SAVE')}
+        env.update({'FRAC': '1'} if fractional else {'SCALE': '65536', 'SHIFT': '16'})
+        p = subprocess.run([str(BASE / 'scoremm'), '3', '16', '16', '16', '1', '0x2020', '0x2020'],
+                           env=env, capture_output=True, text=True, timeout=10)
+        if p.returncode or not correct_result(p.stdout, fractional):
+            raise RuntimeError('SCORE matrix verification failed; no further boot retries')
+    MARKER.write_text('integer and fractional Q16 matrix checks passed at boot clock\n')
+    print('CROWN_SCORE_VERIFIED_NO_CLOCK_CHANGE')
+
+
+if __name__ == '__main__':
+    main()

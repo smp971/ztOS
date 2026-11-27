@@ -26,13 +26,16 @@ backend = "vendor"
 module = "/vendor/ztos/ial/crownlte.py"
 
 [ial.Sensors1]
-backend = "none"
+backend = "vendor"
+module = "/vendor/ztos/ial/crownlte.py"
 [ial.Haptics1]
 backend = "vendor"
 module = "/vendor/ztos/ial/crownlte.py"
 device = "zrn-haptic"
 [ial.Lights1]
-backend = "none"
+backend = "vendor"
+module = "/vendor/ztos/ial/crownlte.py"
+rgb = ["red:status", "green:status", "blue:status"]
 [ial.Modem1]
 backend = "vendor"
 module = "/vendor/ztos/ial/crownlte.py"
@@ -42,7 +45,8 @@ backend = "none"
 backend = "vendor"
 module = "/vendor/ztos/ial/crownlte.py"
 [ial.Accel1]
-backend = "none"
+backend = "vendor"
+module = "/vendor/ztos/ial/crownlte.py"
 [ial.Android1]
 backend = "none"
 

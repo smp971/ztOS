@@ -1,0 +1,13 @@
+[Unit]
+Description=Note9 SCORE accelerator with boot-clock and arithmetic checks
+After=systemd-udev-trigger.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/crown-score
+RemainAfterExit=yes
+TimeoutStartSec=35
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

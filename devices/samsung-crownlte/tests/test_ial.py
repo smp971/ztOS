@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -29,6 +30,82 @@ class HapticsTests(unittest.TestCase):
             self.assertEqual(haptic.props()['Device'], '/dev/input/event2')
             find.return_value = ''
             self.assertFalse(haptic.available())
+
+
+class LightsTests(unittest.TestCase):
+    def test_configured_names_are_not_a_loaded_driver(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(crown, 'LED_ROOT', root):
+            lights = crown.Lights({'rgb': ['red:status', 'green:status', 'blue:status']}, {})
+            self.assertFalse(lights.available())
+            self.assertEqual(lights.props()['Lights'], [])
+            for name in lights.rgb:
+                p = Path(root) / name
+                p.mkdir()
+                (p / 'brightness').write_text('0')
+            self.assertTrue(lights.available())
+            self.assertEqual(lights.props()['Lights'], ['notification'])
+            self.assertFalse(lights.torch)
+
+
+class AccelTests(unittest.TestCase):
+    def test_device_without_successful_boot_check_is_not_available(self):
+        with tempfile.TemporaryDirectory() as root:
+            device, marker = [Path(root) / n for n in ('score', 'verified')]
+            with patch.multiple(crown, SCORE_DEVICE=str(device), SCORE_VERIFIED=str(marker)):
+                accel = crown.Accel({}, {})
+                device.touch()
+                self.assertFalse(accel.props()['Available'])
+                marker.write_text('verified')
+                self.assertEqual(accel.props(), {'Engine': 'score', 'Available': True,
+                                                'DevicePath': str(device)})
+                device.unlink()
+                self.assertFalse(accel.available())
+
+
+@unittest.skipUnless(hasattr(os, 'mkfifo'), 'requires Linux FIFOs')
+class SensorTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.ready, self.ctl = self.root / 'ready', self.root / 'control'
+        self.ready.write_text('1')
+        os.mkfifo(self.ctl)
+        self.reader = os.open(self.ctl, os.O_RDONLY | os.O_NONBLOCK)
+        self.addCleanup(os.close, self.reader)
+        p = patch.multiple(crown, SENSOR_READY=str(self.ready), SENSOR_CTL=str(self.ctl),
+                           SENSOR_ROOT=str(self.root))
+        p.start()
+        self.addCleanup(p.stop)
+        self.sensors = crown.Sensors({}, {})
+
+    def test_units_and_explicit_raw_values(self):
+        (self.root / 'light').write_text('357 3200 1 2 3 4')
+        self.assertEqual(self.sensors.m_Read('light'), [357.0])
+        (self.root / 'accel').write_text('4096 0 -4096')
+        self.assertEqual(self.sensors.m_Read('accelerometer'), [9.80665, 0, -9.80665])
+        (self.root / 'prox').write_text('1 100')
+        self.assertEqual(self.sensors.m_Read('proximity-near'), [1.0])
+        (self.root / 'gyro').write_text('12 -15 8')
+        self.assertEqual(self.sensors.m_Read('gyroscope-raw'), [12.0, -15.0, 8.0])
+
+    def test_not_ready_and_expired_watch_are_unavailable(self):
+        self.ready.write_text('0')
+        self.assertEqual(self.sensors.props()['Available'], [])
+        with self.assertRaises(crown.NotSupported):
+            self.sensors.m_Read('light')
+        self.ready.write_text('1')
+        p = self.root / 'accel'
+        p.write_text('0 0 4096')
+        os.utime(p, (time.time() - 60, time.time() - 60))
+        with patch.object(crown.time, 'monotonic', side_effect=[0, 1]):
+            with self.assertRaises(crown.NotSupported):
+                self.sensors.m_Read('accelerometer')
+
+    def test_sensor_name_cannot_be_a_path_or_command(self):
+        for name in ('../ready', 'accel\ncall on', 'proximity'):
+            with self.assertRaises(crown.NotSupported):
+                self.sensors.m_Read(name)
 
 
 @unittest.skipUnless(hasattr(os, 'mkfifo'), 'requires Linux FIFOs')

@@ -1,0 +1,24 @@
+# Device-specific catalogue: kind|systemd unit or process|argument|title
+unit|crown-charge.service||Charging
+unit|crown-audio.service||Note9 media audio and microphone
+unit|crown-haptic.service||Note9 vibration
+unit|crown-led.service||Note9 notification light
+unit|crown-score.service||SCORE model accelerator
+unit|crown-bluetooth.service||Note9 Bluetooth controller
+unit|bluetooth.service||Bluetooth (BlueZ)
+unit|NetworkManager.service||Wi-Fi networking
+unit|crown-modem-prepare.service||Note9 modem runtime
+unit|crown-modem-boot.service||Note9 modem boot
+unit|crown-network.service||Note9 cellular network
+unit|crown-modem-check.service||SIM startup check
+unit|crown-sensorhub.service||Note9 sensor hub
+unit|crown-sensord.service||Note9 sensor readings
+unit|ztos-iald.service||OSIAL hardware interfaces
+unit|sshd.service||SSH
+unit|greetd.service||Session manager
+user|pipewire.service||Audio (PipeWire)
+user|wireplumber.service||Audio policy (WirePlumber)
+user|pipewire-pulse.service||Audio for PulseAudio programs
+session|ztmetro||ztMETRO shell
+session|ztnotifyd||Notifications
+session|ztos-bt-state||Bluetooth status
