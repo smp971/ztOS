@@ -20,7 +20,7 @@ find "$R/etc/systemd" -type f \( -name '*.service' -o -name '*.timer' -o -name '
 chmod 755 "$R/etc/sudoers.d"
 ch visudo -c
 ch sudo -l -U zerone
-for unit in zrnperfd zrn-sleepd ztoscoresensorframework waydroid-container ztos-waydroid-images; do
+for unit in zrnperfd zrn-sleepd ztoscoresensorframework ztoscoru waydroid-container ztos-waydroid-images; do
     [ "$(readlink "$R/etc/systemd/system/$unit.service")" = /dev/null ]
 done
 [ -f "$R/usr/local/bin/ztmetro" ]

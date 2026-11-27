@@ -1,4 +1,4 @@
-# Initial Crown userspace: only capabilities validated in hardware are exposed.
+# Crown userspace: only capabilities validated in hardware are exposed.
 [device]
 codename = "samsung-crownlte"
 name = "Samsung Galaxy Note9"
@@ -7,6 +7,13 @@ scale = 2.5
 
 [gsi]
 min = "0.2.0"
+
+[ial.Power1]
+backend = "generic"
+battery = "/sys/class/power_supply/max170xx_battery"
+charger = "/sys/class/power_supply/max77705-charger"
+current_sign = 1
+current_node = "/sys/class/power_supply/max170xx_battery/current_now"
 
 [ial.Perf1]
 backend = "generic"
@@ -21,7 +28,8 @@ module = "/vendor/ztos/ial/crownlte.py"
 [ial.Sensors1]
 backend = "none"
 [ial.Haptics1]
-backend = "none"
+backend = "generic"
+device = "zrn-haptic"
 [ial.Lights1]
 backend = "none"
 [ial.Modem1]

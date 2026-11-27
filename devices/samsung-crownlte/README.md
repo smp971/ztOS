@@ -7,9 +7,12 @@ stages add Panfrost graphics, Wi-Fi, audio/microphone, sensors, haptics and
 persistent state; the read-only and software-rendering descriptions below
 document the earlier bring-up stages. This is source for an experimental port,
 not a ready-to-flash release or a tested general-purpose installer.
-Based on ztOS commit `d049080cc2d8e04e8bd4fb40f18f0be19160de61`
-and its pinned S9+ submodule. No S9 prebuilt image is suitable for this device.
-The standard ztOS installer still targets starlte and must not be used here.
+The first port was based on ztOS commit `d049080cc2d8e04e8bd4fb40f18f0be19160de61`
+and its pinned S9+ submodule. The 0.2.3 integration branch uses upstream
+`2360ba9ba5b34952d18faa33002f32bee018bebc`; its shell and native apps were
+tested live on Note9 on 2026-11-27, with the existing kernel/base image.
+No S9 prebuilt image is suitable for this device. Crown requires its staged
+build scripts and private hardware inputs, rather than a stock S9 install.
 
 ## Hardware read from the connected phone
 

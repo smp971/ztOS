@@ -1,5 +1,44 @@
 # Note9 functional bring-up
 
+## Live diagnosis and userspace update: 2026-11-27
+
+This observation supersedes the October hardware status below where it differs.
+SSH and COM35 both work from Windows. A read-only snapshot established:
+
+| Area | Current observation |
+| --- | --- |
+| Boot | Kernel `7.1.0-ztos-crownlte-rescue`, build #16; radios stage with persistent state. Stored BOOT matches the complete `crownlte-state.img` prefix; full partition SHA256 is `a1ac6a9a476f3481a3ad61f5fc55e52e47ad625948690b74f0b4eb33aa91e96d`. This identifies stored BOOT, not a separate measured-boot attestation. |
+| Root/storage | Read-only ext4 base plus writable ext4 state and overlay root. About 3.5 GiB state space and 83 GiB host space free at the initial snapshot. |
+| Memory/battery | About 5.38 GiB RAM visible, 4.36 GiB available initially. Battery 16%, charging, 29.6 C; constant-charge limit 1 A, input limit 875 mA. |
+| UI/GPU | ztMETRO runs with Panfrost GLES on Mali-G72 MC18. The user confirmed display, touch and app launch before and after the update. Native panel brightness remains unavailable; pixels are dimmed in the compositor. |
+| Wi-Fi/BT | Wi-Fi associated and bound HTTPS probe returned 200. Bluetooth adapter powered; no new paired-audio test. |
+| Audio/input | ALSA speaker and microphone devices, PipeWire output/filter and Note9 microphone present. Touch, keys and haptic input device present. No S Pen input device. Physical audio/haptics confirmation remains the October result. |
+| Modem | Daemon and CP respond, but `AT+CPIN?` returns `SIM not inserted` although the user confirms a SIM is physically inserted. Registration denied and no data session. SIM detection is the immediate telephony problem; the October home/EDGE result is historical. |
+| Sensors/GNSS | Hub not ready. LHD download times out and MCU_RESP stays high. One normal reload and one bounded LDO37 supply-cycle test did not recover it. Supply-cut parameter restored off and failed sensor services stopped after diagnosis. No current sensor data or GNSS fix confirmed. |
+
+Upstream `2360ba9` (0.2.3) was combined with the Crown port in the separate
+`codex/note9-upstream-0.2.3` worktree. The new `ztoscoru` name is excluded from
+generic auto-start on Crown, keeping unvalidated S9 components off. The fresh
+image layer now uses the previously validated Panfrost session settings, and
+its IAL manifest describes the known battery and rumble device.
+
+Native shell/app/browser compilation succeeded on the phone. The launch,
+authentication and keyboard tests passed after linking their DotMatrix
+dependencies and updating the stale cursor-dot drag expectation to the
+upstream behavior. The shell and native apps were installed with
+`scripts/update-crownlte-ui.py`, preserving hardware daemons and BOOT. The user
+confirmed the new interface works; the persistent kit hash was verified and
+automatic UI rollback was cancelled. The running shell reports
+`ztMETRO 0.2.3 (2360ba9-crownlte) (wlroots 0.20.2)`.
+
+This is a shell/native-app update. `/etc/os-release` still describes the
+0.2.0-BETA-1 base image; no full base-image replacement, PIN/vault activation,
+modem firmware update or phone reboot was performed. Boot persistence of the
+new kit has not been retested with a full reboot. Backup UI and kit remain on
+the phone under `/unencrypted/ztos/ui-updates/20261127T063103Z` (as seen from
+the host mount). Kernel/display presentation, sensor cold start and SIM
+detection require separate hardware work.
+
 Only hardware-tested results count as working. Original Android partitions
 and calibration backups must be retained; no calls or messages are sent
 without the user's specific instruction. Batch kernel changes to minimize

@@ -3,6 +3,8 @@
 import argparse
 import hashlib
 import json
+import re
+import tarfile
 import paramiko
 from pathlib import Path
 
@@ -10,6 +12,8 @@ ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument('--credentials', type=Path, required=True)
 ap.add_argument('--kit', type=Path, required=True)
 ap.add_argument('--apply-running', action='store_true')
+ap.add_argument('--allow-ui-downgrade', action='store_true',
+                help='explicitly permit a kit that omits or downgrades an installed UI update')
 a = ap.parse_args()
 digest = hashlib.sha256(a.kit.read_bytes()).hexdigest()
 manifest = a.kit.with_suffix('').with_suffix('.sha256')
@@ -23,6 +27,25 @@ try:
     _, out, _ = s.exec_command("tr '\\000' '\\n' < /proc/device-tree/compatible | head -n1")
     if out.read().strip() != b'samsung,crownlte':
         raise SystemExit('Target is not Crown')
+    # A hardware-only kit built before a UI update must not silently restore
+    # its older browser payload or discard the UI overlay on a fresh state.
+    _, out, _ = s.exec_command('cat /usr/local/share/ztos/crown-ui-update.json 2>/dev/null || true')
+    current_ui = out.read().strip()
+    if current_ui and not a.allow_ui_downgrade:
+        current = json.loads(current_ui)
+        incoming = None
+        with tarfile.open(a.kit, 'r:gz') as archive:
+            for member in archive:
+                if member.name.removeprefix('./') == 'usr/local/share/ztos/crown-ui-update.json':
+                    incoming = json.load(archive.extractfile(member))
+                    break
+            names = {member.name.removeprefix('./') for member in archive.getmembers()}
+        def ui_version(metadata):
+            match = re.search(r'ztMETRO (\d+)\.(\d+)\.(\d+)', metadata.get('shell', ''))
+            return tuple(map(int, match.groups())) if match else ()
+        ui_payload = {'usr/local/bin/ztmetro', 'usr/local/lib/crownlte/browser/superscan.bin'}
+        if not incoming or not ui_payload.issubset(names) or ui_version(incoming) < ui_version(current):
+            raise SystemExit('Kit would omit/downgrade the installed UI update; merge the current UI payload first')
     staged = '/home/zerone/crown-kit-' + digest[:12] + '.tar.gz'
     ftp = s.open_sftp()
     try:

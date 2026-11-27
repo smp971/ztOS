@@ -82,10 +82,13 @@ int main(void) {
     assert(!s.osk_trackpad && !s.osk_cursor_touch);
     touch_begin(&s, 5, x, y, now_ms());
     touch_update(&s, 5, x+30, y, now_ms());
+    /* Dragging away from the dot now enters cursor mode immediately. */
+    assert(s.osk_trackpad && s.osk_pressed == -1);
     s.osk_cursor_touch->down_ms = now_ms()-LONG_PRESS_MS;
     long_press_fired(&s);
-    assert(!s.osk_trackpad);
+    assert(s.osk_trackpad);
     touch_end(&s, 5, now_ms(), false);
+    assert(!s.osk_trackpad && !s.osk_cursor_touch);
     hold_dot(&s, 6);
     osk_show(&s, false);
     assert(!s.osk_trackpad && !s.osk_cursor_touch);

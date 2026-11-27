@@ -1,17 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# Read-only, loop-root prototype. Run inside the installer mount namespace.
+# Loop-root prototype. Run inside the installer mount namespace.
 install -d "$R/vendor/ztos"
 cp -a "$DEVSRC/vendor/ztos/." "$R/vendor/ztos/"
-printf '# Root is prepared by the Crown initramfs; Android USERDATA stays read-only.\n' > "$R/etc/fstab"
+printf '# Root and the separate persistent-state image are prepared by the Crown initramfs.\n' > "$R/etc/fstab"
 install -d "$R/etc/ztos"
 cat > "$R/etc/ztos/session.env" <<'ENV'
-export WLR_RENDERER_ALLOW_SOFTWARE=1
 export WLR_NO_HARDWARE_CURSORS=1
 export WLR_RENDERER=gles2
-export GBM_ALWAYS_SOFTWARE=1
-export LIBGL_ALWAYS_SOFTWARE=1
-export GALLIUM_DRIVER=llvmpipe
-export MESA_LOADER_DRIVER_OVERRIDE=kms_swrast
+export WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128
 ENV
 install -d "$R/etc/systemd/sleep.conf.d" "$R/etc/systemd/logind.conf.d"
 cat > "$R/etc/systemd/sleep.conf.d/90-crownlte.conf" <<'SLEEP'
@@ -34,7 +30,7 @@ cat > "$R/etc/systemd/system/zboot-usb-gadget.service.d/90-crownlte-test.conf" <
 ExecStartPost=
 UNIT
 sed -i 's/Galaxy S9 Arch Linux ARM/Galaxy Note9 ztOS prototype/; s/"starlte"/"crownlte"/' "$R/usr/local/sbin/zboot-usb-gadget"
-for unit in ztoscoresensorframework ztos-update-check.timer zrnperfd zrn-sleepd \
+for unit in ztoscoresensorframework ztoscoru ztos-update-check.timer zrnperfd zrn-sleepd \
         waydroid-container ztos-waydroid-images systemd-suspend.service \
         systemd-hibernate.service systemd-hybrid-sleep.service systemd-suspend-then-hibernate.service \
         systemd-fsck-root.service ztos-fs-recovery-reset.service ztos-fs-recovery-rollback.service; do

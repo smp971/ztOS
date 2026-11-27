@@ -10,7 +10,7 @@ row fills the keyboard width. Emoji, comma, and dot match the widths and positio
 respectively. Space fills the span between comma and dot; number and enter
 absorb the side margins. The accent
 dot at the shift/symbol corner has a 28-point invisible touch target. Hold it
-for 450 ms to hide the keys and use the keyboard as a cursor trackpad: drag
+for 450 ms, or drag away from it immediately, to hide the keys and use the keyboard as a cursor trackpad: drag
 horizontally to move by characters and vertically to move by lines. Lifting
 or cancelling restores the keys without typing anything. Trackpad motion
 sends unmodified arrow keys to the focused application, so cursor support

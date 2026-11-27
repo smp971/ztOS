@@ -344,7 +344,7 @@ step "turning on ztOS's services"
 for u in greetd NetworkManager systemd-resolved sshd systemd-pstore ztos-pstore-keep ztoscoru ztos-update-check.timer \
 		ztos-iald zrnperfd waydroid-container ztos-waydroid-images; do
 	case "$TARGET:$u" in
-		crownlte:ztoscoresensorframework|crownlte:ztos-update-check.timer|crownlte:zrnperfd|crownlte:waydroid-container|crownlte:ztos-waydroid-images) continue ;;
+		crownlte:ztoscoresensorframework|crownlte:ztoscoru|crownlte:ztos-update-check.timer|crownlte:zrnperfd|crownlte:waydroid-container|crownlte:ztos-waydroid-images) continue ;;
 	esac
 	ch systemctl enable "$u" > /dev/null 2>&1
 done
