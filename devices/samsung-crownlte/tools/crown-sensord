@@ -1,0 +1,17 @@
+#!/bin/sh
+# Optional sensors must not hold multi-user.target in ExecStartPre for a minute.
+# Keep the bounded readiness wait in this service's main process instead.
+set -eu
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx samsung,crownlte
+for i in $(seq 60); do
+    if [ "$(cat /sys/class/sec/sensorhub/ready 2>/dev/null)" = 1 ]; then
+        exec /usr/local/sbin/ztoscsf-sensord
+    fi
+    if ! systemctl is-active --quiet crown-sensorhub.service; then
+        echo CROWN_SENSORS_UNAVAILABLE_HUB_STOPPED >&2
+        exit 1
+    fi
+    sleep 1
+done
+echo CROWN_SENSORS_UNAVAILABLE_HUB_TIMEOUT >&2
+exit 1

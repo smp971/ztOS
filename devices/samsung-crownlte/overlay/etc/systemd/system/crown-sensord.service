@@ -4,10 +4,12 @@ Requires=crown-sensorhub.service
 After=crown-sensorhub.service
 
 [Service]
-ExecStartPre=/bin/sh -c 'for i in $(seq 60); do [ "$(cat /sys/class/sec/sensorhub/ready 2>/dev/null)" = 1 ] && exit 0; sleep 1; done; exit 1'
-ExecStart=/usr/local/sbin/ztoscsf-sensord
+# Readiness is checked by the main process, so missing sensors do not hold up
+# multi-user.target (and consequently the graphical target).
+Type=exec
+ExecStart=/usr/local/sbin/crown-sensord
 Restart=no
-TimeoutStartSec=65
+TimeoutStartSec=10
 
 [Install]
 WantedBy=multi-user.target

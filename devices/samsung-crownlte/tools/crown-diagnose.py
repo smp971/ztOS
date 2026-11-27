@@ -100,6 +100,7 @@ def main():
         'wifi': run('nmcli', '-t', '-f', 'DEVICE,TYPE,STATE', 'device', 'status'),
         'bluetooth_powered': run('busctl', 'get-property', 'org.bluez', '/org/bluez/hci0',
                                  'org.bluez.Adapter1', 'Powered'),
+        'sensor_hub_ready': read('/sys/class/sec/sensorhub/ready'),
     }
     data['battery'] = {str(p): read(p) for p in Path('/sys/class/power_supply').glob('*/uevent')}
     data['drm'] = [{

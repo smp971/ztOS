@@ -11,17 +11,32 @@ not an acceptance result and no further mobile traffic tests were made.
 `crown-modem-check.service` now provides one bounded SIM-detection retry per
 boot, after initial settling. It does nothing for a ready SIM, an active or
 incoming call, an active data context, or an unknown state. The real ready-SIM
-path and the disruptive-operation guards were checked. Cold-boot acceptance
-is pending. The service uses Wants rather than Requires so stopping the old
+path and the disruptive-operation guards were checked. After a controlled
+power-off and user restart, SIM1 registered home on 4G automatically; the
+boot check logged `CROWN_SIM_READY_NO_RESET`. This is one successful boot,
+not an extended LTE reliability or Internet test. The service uses Wants
+rather than Requires so stopping the old
 network daemon during recovery does not stop its own recovery process.
 
 Sensor transport tests with bit-banged SPI and a slower hardware prescaler
 also failed. The default hardware transport, prescaler 3 and supply-cut off
-were restored. A full power-off test is the next hardware acceptance step;
-repeated warm-reset attempts did not recover the hub. Configuration-file
-permissions copied from DrvFS have been normalized in the candidate kit.
-The local `crownlte-0.2.3-rc1` bundle is a candidate for this already prepared
-phone, not a complete fresh-install image or a declared stable release.
+were restored. A controlled power-off and user restart also failed to recover
+the hub. SPI tracing showed only zero reply bytes before patch download.
+LHD successfully opens the power-control paths, raises GPS_PWR_EN, and LDO37
+reads enabled (`ec`). The installed hub module is byte-identical to the
+October working module; both wake-lock shims have identical function code.
+These checks locate the failure in hub startup/transport, but do not prove
+which signal, clock or retained chip state causes it. No additional speculative
+PMIC writes or repeated phone restarts were made.
+
+The optional sensor readiness wait now runs inside the service's main
+process, rather than `ExecStartPre`: missing sensors no longer delay
+multi-user/graphical startup for up to 60 seconds. Live service activation
+returned in 0.06 s while the compositor remained running. A failed hub is
+still reported as unavailable, and the wrapper has a bounded wait and no
+restart loop. Configuration-file permissions copied from DrvFS have been
+normalized. The local RC bundles target this already prepared phone; they are
+neither complete fresh-install images nor declared stable phone releases.
 
 This observation supersedes the October hardware status below where it differs.
 SSH and COM35 both work from Windows. A read-only snapshot established:
@@ -29,13 +44,13 @@ SSH and COM35 both work from Windows. A read-only snapshot established:
 | Area | Current observation |
 | --- | --- |
 | Boot | Kernel `7.1.0-ztos-crownlte-rescue`, build #16; radios stage with persistent state. Stored BOOT matches the complete `crownlte-state.img` prefix; full partition SHA256 is `a1ac6a9a476f3481a3ad61f5fc55e52e47ad625948690b74f0b4eb33aa91e96d`. This identifies stored BOOT, not a separate measured-boot attestation. |
-| Root/storage | Read-only ext4 base plus writable ext4 state and overlay root. About 3.5 GiB state space and 83 GiB host space free at the initial snapshot. |
-| Memory/battery | About 5.38 GiB RAM visible, 4.36 GiB available initially. Battery 16%, charging, 29.6 C; constant-charge limit 1 A, input limit 875 mA. |
+| Root/storage | Read-only ext4 base plus writable ext4 state and overlay root. After restart: 3.4 GiB state space and 83 GiB host space free. The 10 GiB base image's SHA256 was reverified live. |
+| Memory/battery | About 5.38 GiB RAM visible. After restart: battery 100%, full, 29.6 C; charge-current and USB-input limits both read 1 A. |
 | UI/GPU | ztMETRO runs with Panfrost GLES on Mali-G72 MC18. The user confirmed display, touch and app launch before and after the update. Native panel brightness remains unavailable; pixels are dimmed in the compositor. |
 | Wi-Fi/BT | Wi-Fi associated and bound HTTPS probe returned 200. Bluetooth adapter powered; no new paired-audio test. |
 | Audio/input | ALSA speaker and microphone devices, PipeWire output/filter and Note9 microphone present. Touch, keys and haptic input device present. No S Pen input device. Physical audio/haptics confirmation remains the October result. |
-| Modem | Daemon and CP respond, but `AT+CPIN?` returns `SIM not inserted` although the user confirms a SIM is physically inserted. Registration denied and no data session. SIM detection is the immediate telephony problem; the October home/EDGE result is historical. |
-| Sensors/GNSS | Hub not ready. LHD download times out and MCU_RESP stays high. One normal reload and one bounded LDO37 supply-cycle test did not recover it. Supply-cut parameter restored off and failed sensor services stopped after diagnosis. No current sensor data or GNSS fix confirmed. |
+| Modem | SIM ready, home registration and 4G after one CP-only recovery, then automatically after the full shutdown/restart. IPv4 context assigned. Mobile Internet and call audio remain unvalidated. |
+| Sensors/GNSS | Hub not ready, including after shutdown/restart. All-zero SPI replies and LHD autobaud timeouts. No current sensor samples or GNSS fix. Default transport restored; diagnostic tracing disabled. |
 
 Upstream `2360ba9` (0.2.3) was combined with the Crown port in the separate
 `codex/note9-upstream-0.2.3` worktree. The new `ztoscoru` name is excluded from
@@ -54,11 +69,12 @@ automatic UI rollback was cancelled. The running shell reports
 
 This is a shell/native-app update. `/etc/os-release` still describes the
 0.2.0-BETA-1 base image; no full base-image replacement, PIN/vault activation,
-modem firmware update or phone reboot was performed. Boot persistence of the
-new kit has not been retested with a full reboot. Backup UI and kit remain on
+or modem firmware update was performed. Subsequent shutdown/restart confirmed
+the new UI, kit and writable state return automatically. The user confirmed
+the interface and touch again after this boot. Backup UI and kit remain on
 the phone under `/unencrypted/ztos/ui-updates/20261127T063103Z` (as seen from
-the host mount). Kernel/display presentation, sensor cold start and SIM
-detection require separate hardware work.
+the host mount). Kernel/display presentation and sensor startup still require
+hardware work.
 
 Only hardware-tested results count as working. Original Android partitions
 and calibration backups must be retained; no calls or messages are sent
@@ -67,13 +83,17 @@ reboots. Current storage: test-14 BOOT, read-only base plus 4 GiB state image.
 
 | Area | Confirmed | Remaining acceptance |
 | --- | --- | --- |
-| Telephony | SIM, automatic modem boot, home registration; transient LTE | Stable LTE, IP data, microphone-to-modem and call audio |
+| Telephony | SIM, automatic modem boot, home registration and 4G on the November shutdown/restart | Extended LTE reliability, IP data with an active option, microphone-to-modem and call audio |
 | Display | HA8 boot framebuffer, Panfrost, about 45–50 FPS | Native display presentation, real brightness, improved measured frame time |
 | Power | Gauge, 1 A limits, clean shutdown, persistent state | Suspend/resume, wake, idle consumption and thermal controls |
 | Bluetooth audio | BlueZ controller, firmware, discovery, audio endpoints | Pairing and playback with physical headphones/speaker; user has none available |
-| Note9 inputs | Touch and keys; user-confirmed microphone and physical haptics; accelerometer, gyro, pressure, proximity and ambient-light samples | Rotation integration, S Pen events, calibration |
+| Note9 inputs | Touch and keys; October user-confirmed microphone and haptics | Restore the hub (October sensor samples are historical), rotation integration, S Pen and calibration |
 | Dual boot | Original Lineage BOOT/recovery backups and preserved partitions | Explicit boot selection, reliable return to each OS, persistent choice |
 | Cameras/GPS | Stock device information and original vendor firmware available | Camera sensor/ISP pipeline, sensor hub/GNSS transport and real satellite fix |
+
+## Historical hardware tests: 2026-10-30 to 2026-10-31
+
+The results below describe those tests, not the current sensor-hub state.
 
 Test 15: user authorized a local five-second microphone recording and playback,
 followed by deletion. CS47L93 returned ID 0x6371/revision 1; 48 kHz stereo

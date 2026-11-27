@@ -11,6 +11,11 @@ The first port was based on ztOS commit `d049080cc2d8e04e8bd4fb40f18f0be19160de6
 and its pinned S9+ submodule. The 0.2.3 integration branch uses upstream
 `2360ba9ba5b34952d18faa33002f32bee018bebc`; its shell and native apps were
 tested live on Note9 on 2026-11-27, with the existing kernel/base image.
+The updated interface, touch, persistent state and automatic SIM/home/4G
+registration survived a controlled shutdown and user restart. Sensor hub
+startup currently fails; October sensor samples are historical. The optional
+sensor readiness wait no longer holds up graphical startup. Call audio,
+cameras, S Pen, GNSS and suspend still need hardware work or validation.
 No S9 prebuilt image is suitable for this device. Crown requires its staged
 build scripts and private hardware inputs, rather than a stock S9 install.
 

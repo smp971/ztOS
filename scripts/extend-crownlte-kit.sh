@@ -43,9 +43,10 @@ PY
 mkdir -p "$KIT/usr/local/lib/crownlte/browser"
 install -m755 "$B/crown-browser/superscan.bin" "$KIT/usr/local/lib/crownlte/browser/"
 install -m755 "$REPO/devices/samsung-crownlte/tools/crown-superscan" "$KIT/usr/local/bin/superscan"
-for name in crown-audio crown-modem-prepare crown-modem-boot crown-modem-check crown-sensorhub crown-haptic; do
+for name in crown-audio crown-modem-prepare crown-modem-boot crown-modem-check crown-sensorhub crown-sensord crown-haptic; do
     install -m755 "$REPO/devices/samsung-crownlte/tools/$name" "$KIT/usr/local/sbin/$name"
 done
+install -m755 "$REPO/devices/samsung-crownlte/tools/crown-diagnose.py" "$KIT/usr/local/sbin/crown-diagnose"
 
 # Only the Crown-patched hub module is accepted: never ship the STAR default.
 PERIPHERALS="$B/crown-peripherals-v2/sensorhub"

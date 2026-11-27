@@ -1,5 +1,13 @@
 # Sensor hub after a warm reboot: what the stock firmware does
 
+**Crown follow-up, 2026-11-27:** the S9 analysis below is a hypothesis, not a
+confirmed Note9 fix. Crown's saved stock DT lacks `regulator-always-on` on
+LDO37. A known-working Crown module still returns zero SPI reply bytes after
+a controlled shutdown/restart and bounded parked-line supply-cycle tests.
+MCU_RESP high and SPI_CLK_CFG reading zero also appeared in the historical
+successful Crown test, so neither alone proves a stale hub or missing clock.
+See `devices/samsung-crownlte/BRINGUP.md` for current hardware acceptance.
+
 The stock firmware does not run a reset sequence that our driver is missing.
 Samsung's kernel never cuts the hub supply and never resets the chip. lhd does
 one thing: a 20 ms low pulse on the enable pin (`gpg0-2`, nSTANDBY). Our driver
