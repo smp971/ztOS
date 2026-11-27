@@ -1,0 +1,14 @@
+[Unit]
+Description=Note9 boot-only SIM detection recovery
+Wants=crown-network.service
+After=crown-network.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/crown-modem-check
+TimeoutStartSec=140
+RemainAfterExit=yes
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

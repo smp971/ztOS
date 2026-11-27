@@ -43,7 +43,7 @@ PY
 mkdir -p "$KIT/usr/local/lib/crownlte/browser"
 install -m755 "$B/crown-browser/superscan.bin" "$KIT/usr/local/lib/crownlte/browser/"
 install -m755 "$REPO/devices/samsung-crownlte/tools/crown-superscan" "$KIT/usr/local/bin/superscan"
-for name in crown-audio crown-modem-prepare crown-modem-boot crown-sensorhub crown-haptic; do
+for name in crown-audio crown-modem-prepare crown-modem-boot crown-modem-check crown-sensorhub crown-haptic; do
     install -m755 "$REPO/devices/samsung-crownlte/tools/$name" "$KIT/usr/local/sbin/$name"
 done
 
@@ -126,9 +126,14 @@ else:
 PY
 SH
 chmod 755 "$KIT/usr/local/sbin/crown-network-select"
-for name in crown-audio crown-network crown-sensorhub crown-sensord crown-haptic; do
+for name in crown-audio crown-network crown-modem-check crown-sensorhub crown-sensord crown-haptic; do
     ln -sfn "/etc/systemd/system/$name.service" "$KIT/etc/systemd/system/multi-user.target.wants/$name.service"
 done
-tar -czf "$B/crownlte-connectivity-kit-next.tar.gz" -C "$KIT" .
+# DrvFS source checkouts may report 0777. Configuration must not inherit that.
+find "$KIT/etc" -type d -exec chmod 755 {} +
+find "$KIT/etc" -type f -exec chmod 644 {} +
+find "$KIT/usr/local/share/applications" -type f -exec chmod 644 {} +
+find "$KIT/usr/local/share/applications" -type d -exec chmod 755 {} +
+tar --owner=0 --group=0 --numeric-owner -czf "$B/crownlte-connectivity-kit-next.tar.gz" -C "$KIT" .
 (cd "$B" && sha256sum crownlte-connectivity-kit-next.tar.gz > crownlte-connectivity-kit-next.sha256)
 echo CROWN_EXTENDED_KIT_READY

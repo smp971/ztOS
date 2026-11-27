@@ -1,0 +1,63 @@
+#!/usr/bin/python3
+"""One bounded, boot-only CP retry if SIM detection stalls. Never reset a call."""
+import os
+from pathlib import Path
+import subprocess
+import time
+
+STATUS = Path('/run/ztoscorenetworking/status')
+ATTEMPTED = Path('/run/crown-modem-sim-retry')
+
+
+def status():
+    try:
+        return dict(line.split('=', 1) for line in STATUS.read_text().splitlines() if '=' in line)
+    except OSError:
+        return {}
+
+
+def retry_allowed(s):
+    return s.get('sim') == 'error' and s.get('call') == 'idle' and s.get('data') == '0'
+
+
+def command(*args):
+    subprocess.run(args, check=True, timeout=55)
+
+
+def main():
+    if b'samsung,crownlte' not in Path('/proc/device-tree/compatible').read_bytes().split(b'\0'):
+        raise SystemExit('Not Crown')
+    # Remain idle while the first SIM interrogation and registration settle.
+    for _ in range(20):
+        s = status()
+        if s.get('sim') == 'ready':
+            print('CROWN_SIM_READY_NO_RESET'); return
+        time.sleep(1)
+    if not retry_allowed(status()):
+        print('CROWN_SIM_RETRY_SKIPPED_UNKNOWN_OR_BUSY'); return
+    try:
+        fd = os.open(ATTEMPTED, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        print('CROWN_SIM_RETRY_ALREADY_ATTEMPTED'); return
+    with os.fdopen(fd, 'w') as f:
+        f.write('one boot-only SIM detection retry\n')
+    # Recheck immediately before the disruptive operation.
+    if not retry_allowed(status()):
+        print('CROWN_SIM_RETRY_CANCELLED_STATE_CHANGED'); return
+    print('CROWN_SIM_RETRY_START', flush=True)
+    command('systemctl', 'stop', 'crown-network.service')
+    try:
+        command('systemctl', 'restart', 'crown-modem-boot.service')
+    except Exception:
+        print('CROWN_SIM_RETRY_CP_FAILED_NO_LOOP', flush=True)
+        raise
+    command('systemctl', 'start', 'crown-network.service')
+    for _ in range(20):
+        if status().get('sim') == 'ready':
+            print('CROWN_SIM_RECOVERED'); return
+        time.sleep(1)
+    print('CROWN_SIM_STILL_UNAVAILABLE_NO_MORE_RETRIES')
+
+
+if __name__ == '__main__':
+    main()

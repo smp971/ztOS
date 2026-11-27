@@ -2,6 +2,27 @@
 
 ## Live diagnosis and userspace update: 2026-11-27
 
+Follow-up on the same day: one CP-only reset recovered the physically inserted
+SIM1. Subsequent checks reported `sim=ready`, `registered=home`, `tech=4G`
+and an assigned IPv4 context. HTTPS attempts had no receive traffic; the user
+then clarified that the SIM has no active data option, so Internet service is
+not an acceptance result and no further mobile traffic tests were made.
+
+`crown-modem-check.service` now provides one bounded SIM-detection retry per
+boot, after initial settling. It does nothing for a ready SIM, an active or
+incoming call, an active data context, or an unknown state. The real ready-SIM
+path and the disruptive-operation guards were checked. Cold-boot acceptance
+is pending. The service uses Wants rather than Requires so stopping the old
+network daemon during recovery does not stop its own recovery process.
+
+Sensor transport tests with bit-banged SPI and a slower hardware prescaler
+also failed. The default hardware transport, prescaler 3 and supply-cut off
+were restored. A full power-off test is the next hardware acceptance step;
+repeated warm-reset attempts did not recover the hub. Configuration-file
+permissions copied from DrvFS have been normalized in the candidate kit.
+The local `crownlte-0.2.3-rc1` bundle is a candidate for this already prepared
+phone, not a complete fresh-install image or a declared stable release.
+
 This observation supersedes the October hardware status below where it differs.
 SSH and COM35 both work from Windows. A read-only snapshot established:
 
