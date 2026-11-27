@@ -2,6 +2,33 @@
 
 ## Live diagnosis and userspace update: 2026-11-27
 
+OSIAL follow-up: the base image still had its initial five-interface manifest.
+The live Crown manifest/module and persistent kit now also serve Haptics1,
+Modem1 and AudioDevice1: eight of thirteen interfaces answer on D-Bus.
+Haptics discovers its input device again if the module loads after IAL starts,
+avoiding an ordering dependency on boot. Modem state comes from the running
+Shannon daemon and CP state; controls use its nonblocking, bounded FIFO
+protocol. Signal bars are 0..5, mapped to 0..100. Offline CP or a stopped daemon
+does not reuse a stale connected state. AudioDevice exposes the actual Crown
+driver's recovery/codec counters; calibration and speaker protection report
+false, and call routing remains unvalidated with CP VSS disabled.
+
+Nine on-phone adapter tests passed using temporary nodes/FIFOs, including late
+haptic discovery, stopped-daemon behavior, command framing and audio fault
+reporting. Live queries confirmed SIM ready/home/4G and zero driver error
+counters; both OSIAL vibration calls were accepted. The user confirmed both
+physical vibrations and the eight connected interfaces on screen. Only
+ztos-iald was restarted,
+with the same compositor and phone boot retained. OSIAL's description now
+identifies Accel1 as model-inference hardware (SCORE), distinct from Panfrost,
+and explains that an answering interface can still have unavailable features.
+
+Sensors1, Lights1, CallAudio1, Accel1 and Android1 remain unserved: sensor-hub
+startup fails, no LED/torch or SCORE device exists, call audio has not been
+validated, and this kernel has no Binder. Display1 and Sleep1 already answer
+queries but native brightness and suspend remain unavailable. Interface count
+is not a claim that all thirteen hardware functions work.
+
 App-menu follow-up: the installed Settings and ZrnDevTest binaries lacked
 desktop entries, so they could appear as built-in Start tiles but not in the
 all-apps list. Their entries are now included in the native install, Crown UI

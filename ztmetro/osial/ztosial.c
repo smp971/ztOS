@@ -48,7 +48,7 @@ static const struct { const char *name, *title, *what; } known[] = {
 	{ "Modem1", "Mobile network", "the modem, SIM and signal" },
 	{ "CallAudio1", "Call audio", "where a call's sound goes" },
 	{ "AudioDevice1", "Audio devices", "speakers, earpiece, microphones and headsets" },
-	{ "Accel1", "Acceleration", "the GPU and video hardware" },
+	{ "Accel1", "Model acceleration", "the inference accelerator used by IntelligentBoost" },
 	{ "Android1", "Android", "what Android apps (Waydroid) need from the kernel" },
 };
 
@@ -383,6 +383,7 @@ static double draw_interfaces(cairo_t *cr) {
 	snprintf(summary, sizeof(summary), "%d of %d interfaces connected%s", count[ST_UP], n_ifaces,
 		count[ST_DOWN] ? ", some not answering" : ".");
 	y = note(cr, y, summary, 15);
+	y = note(cr, y, "Connected means the interface answers. Availability and supported features are shown in its properties.", 12.5);
 	static const enum state order[] = { ST_DOWN, ST_UP, ST_ABSENT };
 	for (int o = 0; o < 3; o++) {
 		enum state st = order[o];

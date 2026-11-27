@@ -28,16 +28,19 @@ module = "/vendor/ztos/ial/crownlte.py"
 [ial.Sensors1]
 backend = "none"
 [ial.Haptics1]
-backend = "generic"
+backend = "vendor"
+module = "/vendor/ztos/ial/crownlte.py"
 device = "zrn-haptic"
 [ial.Lights1]
 backend = "none"
 [ial.Modem1]
-backend = "none"
+backend = "vendor"
+module = "/vendor/ztos/ial/crownlte.py"
 [ial.CallAudio1]
 backend = "none"
 [ial.AudioDevice1]
-backend = "none"
+backend = "vendor"
+module = "/vendor/ztos/ial/crownlte.py"
 [ial.Accel1]
 backend = "none"
 [ial.Android1]

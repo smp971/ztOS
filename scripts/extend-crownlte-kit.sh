@@ -48,6 +48,9 @@ for name in crown-audio crown-modem-prepare crown-modem-boot crown-modem-check c
     install -m755 "$REPO/devices/samsung-crownlte/tools/$name" "$KIT/usr/local/sbin/$name"
 done
 install -m755 "$REPO/devices/samsung-crownlte/tools/crown-diagnose.py" "$KIT/usr/local/sbin/crown-diagnose"
+mkdir -p "$KIT/vendor/ztos/ial"
+install -m644 "$REPO/devices/samsung-crownlte/vendor/ztos/manifest.toml" "$KIT/vendor/ztos/manifest.toml"
+install -m644 "$REPO/devices/samsung-crownlte/vendor/ztos/ial/crownlte.py" "$KIT/vendor/ztos/ial/crownlte.py"
 
 # Only the Crown-patched hub module is accepted: never ship the STAR default.
 PERIPHERALS="$B/crown-peripherals-v2/sensorhub"
